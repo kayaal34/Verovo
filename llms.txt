@@ -8,7 +8,7 @@
 - [Services](https://roy-tong.github.io/Verovo/services.html): free measurement-run scope, input requirements, turnaround and refunds
 - [FAQ（中文）](https://roy-tong.github.io/Verovo/faq.html): Chinese answers to common queries (AI bill checking, API cost recount, open-source reconciliation tools) with sourced numbers
 - [Tool bill coverage](https://roy-tong.github.io/Verovo/tools.html): cataloged tool billing models for buyer tasks; cataloged is not live-validated
-- [Healthcheck](https://github.com/roy-tong/verovo/blob/main/healthcheck/README.md): local session checks, sharing and supported commands
+- [Healthcheck](https://github.com/roy-tong/verovo/blob/main/healthcheck/README.md): local session checks, sharing and supported commands; install from PyPI `pipx install verovo`
 - [SDK](https://github.com/roy-tong/verovo/blob/main/sdk/README.md): Provider SDK `@verovo/mcp` on npm, independently versioned
 - [Release notes](https://roy-tong.github.io/Verovo/releases.html): independent package versions and dated releases
 
