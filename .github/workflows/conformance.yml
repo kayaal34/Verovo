@@ -36,7 +36,7 @@ on:
 jobs:
   # ─── 套件 0：local healthcheck adapter + check contracts ───
   healthcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         python-version: ['3.9', '3.11']
@@ -74,7 +74,7 @@ jobs:
 
   # ─── 套件 0c：buyer-ledger（买方侧统一费用账本，M1；不变量 INV-1..6） ───
   buyer-ledger:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       matrix:
         python-version: ['3.9', '3.11']
