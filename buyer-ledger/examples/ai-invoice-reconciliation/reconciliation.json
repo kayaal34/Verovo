@@ -1,0 +1,186 @@
+{
+ "schema": "verovo.example-reconciliation/1",
+ "period": {
+  "vendor": "anthropic",
+  "account": "acme-prod",
+  "period": "2026-10",
+  "currency": "USD",
+  "synthetic": true
+ },
+ "totals": {
+  "invoice_total": "26563.25",
+  "recalc_total": "38462.06",
+  "cost_total": "31207.33",
+  "explained_known_lines": "26419.02",
+  "unexplained_residual": "144.23",
+  "cache_gap": "7254.73"
+ },
+ "identity_check": {
+  "formula": "recalc + seats + credits + tax + residual = invoice_total",
+  "holds": true,
+  "note": "holds by definition of residual; a sanity check, not proof"
+ },
+ "line_checks": {
+  "rows": 90,
+  "matched": 90,
+  "mismatched": 0,
+  "missing_cost_rows": 0,
+  "sources": [
+   "usage.csv x prices.json",
+   "cost.csv",
+   "invoice.csv#usage_charges (total level)"
+  ],
+  "invoice_usage_line_check": {
+   "invoice_line_usd": "38462.06",
+   "recalc_total_usd": "38462.06",
+   "equal": true
+  }
+ },
+ "observed_differences": [
+  {
+   "id": "unexplained_residual",
+   "kind": "observed_difference",
+   "amount_usd": "144.23",
+   "direction": "invoice_higher",
+   "comparison": {
+    "formula": "invoice_total - recalc_total - seats - credits - tax",
+    "left_source": "invoice.csv",
+    "right_source": "usage.csv x prices.json + invoice-only lines"
+   },
+   "qualification": "confirmed",
+   "closed": true,
+   "follow_up": null,
+   "explanations": [
+    {
+     "hypothesis": "price_tier_mismatch",
+     "confidence_kind": "confirmed",
+     "basis_refs": [
+      "ground-truth.json#injections[unexplained_residual]"
+     ],
+     "rule_id": null,
+     "reviewer": null,
+     "synthetic_ground_truth": true,
+     "note": "confirmed ONLY by the generator's declared synthetic injection; a real confirmation would need an approved contract price table or a vendor confirmation"
+    },
+    {
+     "hypothesis": "commitment_true_up",
+     "confidence_kind": "heuristic",
+     "basis_refs": [
+      "reconciliation.json#totals.unexplained_residual"
+     ],
+     "rule_id": null,
+     "reviewer": null,
+     "note": "commitment drawdown or true-up line; requires the contract"
+    },
+    {
+     "hypothesis": "usage_window_revision",
+     "confidence_kind": "heuristic",
+     "basis_refs": [
+      "reconciliation.json#totals.unexplained_residual"
+     ],
+     "rule_id": null,
+     "reviewer": null,
+     "note": "usage revised inside the vendor's month-end window; requires export timestamps"
+    }
+   ],
+   "missing_evidence": [
+    "approved contract price table (currency, validity, unit, cache tier)",
+    "vendor confirmation for the residual line"
+   ]
+  },
+  {
+   "id": "cache_gap",
+   "kind": "observed_difference",
+   "amount_usd": "7254.73",
+   "direction": "cost_export_lower",
+   "comparison": {
+    "formula": "recalc_total - cost_total",
+    "left_source": "usage.csv x prices.json",
+    "right_source": "cost.csv"
+   },
+   "qualification": "unresolved",
+   "closed": false,
+   "follow_up": "buyer_data_review",
+   "explanations": [
+    {
+     "hypothesis": "cache_read_rounded_to_zero",
+     "confidence_kind": "heuristic",
+     "basis_refs": [
+      "line-checks.csv (90/90 rows: gap equals the row's cache-read amount)"
+     ],
+     "rule_id": null,
+     "reviewer": null,
+     "note": "row-level pattern supports omission/rounding but cannot exclude the candidates below"
+    },
+    {
+     "hypothesis": "time_window_revision",
+     "confidence_kind": "heuristic",
+     "basis_refs": [
+      "period.json#period"
+     ],
+     "rule_id": null,
+     "reviewer": null,
+     "note": "vendor revises usage/cost for ~7 days after month-end"
+    },
+    {
+     "hypothesis": "async_export_revision",
+     "confidence_kind": "heuristic",
+     "basis_refs": [
+      "cost.csv (regeneration timestamp unknown)"
+     ],
+     "rule_id": null,
+     "reviewer": null,
+     "note": "cost export may be generated from a different revision than the usage export"
+    }
+   ],
+   "missing_evidence": [
+    "export generation timestamps for usage.csv and cost.csv",
+    "vendor statement on cache-read rounding policy"
+   ]
+  }
+ ],
+ "invoice_only_lines": [
+  {
+   "id": "enterprise_seats",
+   "amount_usd": "6000.00",
+   "kind": "invoice_only_adjustment",
+   "qualification": "not_a_vendor_error",
+   "basis_refs": [
+    "invoice.csv#enterprise_seats"
+   ],
+   "note": "seat-based enterprise spend; not in usage/cost API"
+  },
+  {
+   "id": "credits",
+   "amount_usd": "-20000.00",
+   "kind": "invoice_only_adjustment",
+   "qualification": "not_a_vendor_error",
+   "basis_refs": [
+    "invoice.csv#credits"
+   ],
+   "note": "committed-use credit; invoice only"
+  },
+  {
+   "id": "tax",
+   "amount_usd": "1956.96",
+   "kind": "invoice_only_adjustment",
+   "qualification": "not_a_vendor_error",
+   "basis_refs": [
+    "invoice.csv#tax"
+   ],
+   "note": "tax is not a usage line"
+  }
+ ],
+ "coverage": {
+  "status": "comparable",
+  "net_pct": "99.46",
+  "gross_pct": "99.69",
+  "net_definition": "explained (incl. negative credits) / invoice total",
+  "gross_definition": "explained (excl. negative credits) / invoice total excl. credits",
+  "negative_adjustments_usd": "-20000.00"
+ },
+ "notes": [
+  "observed_difference and cause qualification are separate layers; no cause is inferred from a non-zero difference alone",
+  "confirmed explanations in this run rest on the generator's declared synthetic injection (synthetic_ground_truth); they are not real independent evidence"
+ ]
+}

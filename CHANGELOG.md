@@ -1,5 +1,40 @@
 # Changelog
 
+## Unreleased
+
+V-01 (differential cause qualification): an amount difference and its cause
+are now separate claims in the ai-invoice-reconciliation example; no cause is
+inferred from a non-zero difference alone.
+
+### Fixed
+
+- **buyer-ledger example**: `reconcile.py` no longer stamps the unexplained
+  residual with a fixed `price_tier_mismatch` reason code or the cost-export
+  gap with `cache_read_rounded_to_zero`. Differences are emitted as
+  `observed_difference` facts with a layered qualification
+  (`unresolved` default / `confirmed` / `not_a_vendor_error`); candidate
+  explanations carry `basis_refs` and `confidence_kind=heuristic`. The cache
+  gap stays multi-candidate (rounding / time window / async revision).
+- **Confirmed explanations need evidence**: `confirmed` requires declared
+  evidence; in the synthetic demo this is `make_demo.py`'s injection
+  declaration in `ground-truth.json`, explicitly labeled
+  `synthetic_ground_truth` and never presented as real independent proof.
+- **Identity is not proof**: the residual identity
+  `recalc + seats + credits + tax + residual = invoice_total` holds by
+  definition and is kept only as a sanity check. Correctness evidence comes
+  from new row-level cross-checks (`line-checks.csv`: usage×prices vs cost
+  export per row, invoice usage line vs recalculation), which catch tampered
+  rows the identity cannot.
+- **Coverage caliber**: net coverage above 100% (or a non-positive
+  denominator) is reported as `not_comparable` with gross/net shown
+  separately; negative residuals keep their direction (`invoice_lower`)
+  instead of being presented as normal residuals.
+
+### Verification
+
+- Buyer-ledger: **117 tests pass** (110 existing + 7 new adversarial tests
+  covering AC V01 A–F, frozen red against the pre-fix script).
+
 ## v0.13.0 - 2026-11-04
 
 Independent completion axes and evidence provenance: finance can finish without

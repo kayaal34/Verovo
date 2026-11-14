@@ -47,12 +47,16 @@ export VEROVO_LLM_BASE_URL=... VEROVO_LLM_API_KEY=... VEROVO_LLM_MODEL=...
 
 ```bash
 cd examples/ai-invoice-reconciliation
-python3 make_demo.py   # 生成合成账单（一个供应商、一个账户、一个账期）
-python3 reconcile.py   # 输出 reconciliation.csv + sample-report.md
+python3 make_demo.py   # 生成合成账单 + ground-truth 注入声明（一个供应商、一个账户、一个账期）
+python3 reconcile.py   # 输出 reconciliation.csv/.json + line-checks.csv + sample-report.md
 ```
 
-- 合成数据，不是客户案例；样例断言
-  `recalc + seats + credits + tax + residual = invoice total`。
+- 合成数据，不是客户案例；差额事实与原因资格分离：无独立证据时资格默认
+  `unresolved`，候选解释带 `basis_refs`/`confidence_kind=heuristic`，
+  `confirmed` 仅在显式 `synthetic_ground_truth` 声明下成立（不冒充真实证据）。
+- 金额平衡恒等式 `recalc + seats + credits + tax + residual = invoice_total`
+  只是 sanity check（按 residual 定义恒成立）；正确性证据来自
+  `line-checks.csv` 的行级独立核对（usage×价格 vs 成本导出 vs 账单行）。
 - 这不是产品完整功能，是“把发票、成本导出、用量导出对到分”的最小可复现件；
   真实账期适配、PDF/XLSX、席位/承诺/汇率仍需按客户材料做。
 
