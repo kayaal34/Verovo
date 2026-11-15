@@ -27,7 +27,7 @@
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 当前 106 项测试
+python3 -m unittest discover -s tests -t .     # 当前 147 项测试
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium
@@ -59,6 +59,38 @@ python3 reconcile.py   # 输出 reconciliation.csv/.json + line-checks.csv + sam
   `line-checks.csv` 的行级独立核对（usage×价格 vs 成本导出 vs 账单行）。
 - 这不是产品完整功能，是“把发票、成本导出、用量导出对到分”的最小可复现件；
   真实账期适配、PDF/XLSX、席位/承诺/汇率仍需按客户材料做。
+
+## 账期包导入与人工字段映射（V-02）
+
+把一份本地账期包（`verovo.period-job/1` + bills/usage 导出 + 已批准规则表）
+导成既有 Period Intake 能消费的 canonical bundle。**导入只给提议，人工确认才
+生成 canonical；原始文件不改，重复导入幂等并保留原始 sha256。**
+
+```bash
+B="python3 -m buyer_ledger"
+
+$B close init ./close-2026-10 --from-job ./bundle/period-job.json
+$B close ingest ./close-2026-10 --bundle ./bundle
+$B close mapping ./close-2026-10                 # 看列映射/控制域/待审项
+$B close mapping ./close-2026-10 --confirm --review-by finance
+$B close status ./close-2026-10                  # BuyerCloseCase 只读投影
+
+# V-03 / V-04 尚未实现：显式 exit 2 并点名工单，不伪造结果
+$B close calculate ./close-2026-10
+$B close report ./close-2026-10
+$B close revise ./close-2026-10 --source revised.csv
+$B close signoff ./close-2026-10 --by c
+```
+
+- 半开区间 `[from, to)`、单 vendor/account/currency；跨币种先拆分，不合并成
+  一个精确总额。时区与账单展示口径一致。
+- 货币混合、有效期不覆盖账期的价格表、越界路径/符号链接都会被拒绝；
+  重复 charge/usage 只入账一次；未审核映射不能生成 canonical。
+- vendor export 始终是 vendor-controlled（即使买方本地下载）；两份 vendor
+  导出不能变成 `Buyer Verified`。invoice/OCR 只登记为 `unreviewed`、
+  `unbooked` 文档，不凭文本抽取入账。
+- 详细契约、错误码、目录结构与覆盖诊断见
+  [docs/period-import.md](docs/period-import.md)。
 
 ## 文件导入与 Agent 首次适配
 
@@ -178,7 +210,7 @@ $B fetch --recipe recipe.json --period 2026-10 \
 
 | 项目 | 状态 |
 |---|---|
-| 106 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角与浏览器运行时边界 |
+| 147 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界与账期包导入/字段映射 |
 | 合成 CSV 的 CLI 导入→复算→对账→报告 | ✅ 已端到端运行，重复导入幂等 |
 | 26 个工具的账单/计量维度编目 | ✅ 目录与未知 provider 披露已测试；不代表已接通 |
 | CDP loopback 附着、下载与自动分析 | ✅ 本机 Chrome 156 + 本地 HTTPS 合成账单：下载→入账→`--analyze` 出报告；未做真实平台账单后台验收 |

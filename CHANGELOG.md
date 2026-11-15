@@ -6,6 +6,32 @@ V-01 (differential cause qualification): an amount difference and its cause
 are now separate claims in the ai-invoice-reconciliation example; no cause is
 inferred from a non-zero difference alone.
 
+V-02 (period import and human field mapping): one local billing period is
+scanned and proposed as a mapping draft; only a human confirmation produces the
+canonical bundle Period Intake consumes. Original files are never modified,
+re-ingest is idempotent and keeps the original SHA-256, and OCR/invoice drafts
+never enter the ledger.
+
+### Added
+
+- **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `status` (and
+  `show` as the same read-only projection), plus loud V-03 (`calculate`,
+  `report`) and V-04 (`revise`, `signoff`) stubs that exit 2 instead of faking
+  results.
+- **`verovo.period-job/1` import**: half-open `[from, to)`, one
+  vendor/account/currency, IANA timezone, UTF-8/BOM handling, per-file SHA-256,
+  path/symlink containment at ingest, duplicate-id diagnostics, four coverage
+  categories, and a `BuyerCloseCase` read-only projection with C-01
+  `task_state` / `next_required_action` / `blocked_reason_code`.
+- **Human confirmation gate**: mapping draft -> `mapping-confirmed.json`
+  (`attested_by_declaration`) -> `canonical/`; vendor-only exports keep
+  `Buyer Verified = UNPROVABLE`; invoice/OCR documents stay `unreviewed` /
+  `unbooked` and live under `manifest.documents`, never `manifest.sources`.
+- **Price-table validity**: pricing rules must state currency, unit, version
+  and `valid_from`/`valid_to`; an expired table refuses canonical generation,
+  and reusable rules are proposed only when they cover the current period and
+  always carry `requires_re_review_next_period`.
+
 ### Fixed
 
 - **buyer-ledger example**: `reconcile.py` no longer stamps the unexplained
@@ -29,11 +55,20 @@ inferred from a non-zero difference alone.
   denominator) is reported as `not_comparable` with gross/net shown
   separately; negative residuals keep their direction (`invoice_lower`)
   instead of being presented as normal residuals.
+- **Period intake task links**: a bill-declared `task_id` is registered even
+  when the bill is matched to a financialized usage row, and the matched usage
+  run is linked only when the bills name exactly one task. Ambiguous run links
+  stay unallocated instead of being guessed.
 
 ### Verification
 
-- Buyer-ledger: **117 tests pass** (110 existing + 7 new adversarial tests
-  covering AC V01 A–F, frozen red against the pre-fix script).
+- Buyer-ledger: **147 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 30 V-02
+  acceptance tests covering AC V07–V15, BuyerCloseCase and the CLI; the V-02
+  tests were committed red first).
+- Healthcheck: **593 tests pass**.
+- Repository root: **59 tests pass**.
+- Python 3.9; synthetic fixtures only; no network calls and no real billing
+  data.
 
 ## v0.13.0 - 2026-11-04
 
