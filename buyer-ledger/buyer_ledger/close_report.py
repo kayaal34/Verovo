@@ -1,0 +1,1482 @@
+"""V-03 buyer-close report: replayable month-end report over the V-02 bundle.
+
+This module is a projection/orchestrator over the existing canonical chain
+(``verovo_healthcheck.canonical_finance`` -> ``period_intake`` /
+``task_economics``).  It deliberately does not implement a second financial
+engine:
+
+    canonical/  --calculate-->  calculation.json
+                --report---->  report.json / report.md / line-reconciliation.csv
+                               review-queue.csv / evidence-index.json / manifest.json
+                --review---->  review.json (named reviewer, scope, reservations)
+
+Every amount is a Decimal string.  The report keeps the four completion axes
+(``finance_status`` / ``verification_status`` / ``delivery_status`` /
+``economics_status``) separate from the PASS/FAIL/UNKNOWN/UNPROVABLE evidence
+verdicts.  Line classification is mutually exclusive, so one charge can be
+referenced by several findings without being counted twice.  Credits, tax and
+refunds are never reported as realized savings.
+"""
+from __future__ import annotations
+
+import csv
+import hashlib
+import io
+import json
+import sys
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+from . import __version__
+from .close import CloseError, load_period_job
+
+REPORT_SCHEMA = "verovo.buyer-close-report/1"
+CALCULATION_SCHEMA = "verovo.close-calculation/1"
+REVIEW_SCHEMA = "verovo.close-review/1"
+REPORT_MANIFEST_SCHEMA = "verovo.close-report-manifest/1"
+EVIDENCE_SCHEMA = "verovo.close-evidence-index/1"
+CODE_VERSION = "buyer-ledger/%s close-report/1" % __version__
+ALGORITHM_VERSIONS = {
+    "canonical_finance": "1.0",
+    "period_intake": "1.0",
+    "task_economics": "1.0",
+}
+AXES = ("finance_status", "verification_status", "delivery_status",
+        "economics_status")
+VERDICT_NAMES = ("Rule Repriced", "Invoice Reconciled", "Vendor Reconciled",
+                 "Buyer Verified", "Delivery Accepted")
+ADJUSTMENT_TYPES = ("tax", "credit", "refund", "discount")
+APPLIED_STATES = {"applied", "posted", "realized"}
+PENDING_STATES = {"issued", "pending", "unapplied", "void", "unknown", ""}
+UNRESOLVED_STATES = {"unresolved", "open", "pending", "needs_input",
+                     "needs_review"}
+
+
+# ---------------------------------------------------------------------------
+# generic helpers
+# ---------------------------------------------------------------------------
+
+def _text(value: Any) -> str:
+    return str(value if value is not None else "").strip()
+
+
+def _display(value: Any) -> str:
+    return "—" if value in (None, "") else str(value)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _sha_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _sha_file(path: Path) -> str:
+    return _sha_bytes(path.read_bytes())
+
+
+def _fingerprint(payload: Any) -> str:
+    return _sha_bytes(json.dumps(payload, ensure_ascii=False, sort_keys=True,
+                                 separators=(",", ":")).encode("utf-8"))
+
+
+def _write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8")
+    temp.replace(path)
+
+
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    temp.write_text(text, encoding="utf-8")
+    temp.replace(path)
+
+
+def _dec(value: Any, label: str) -> Optional[Decimal]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        raise CloseError("INPUT_REQUIRED", "%s must be a decimal amount" % label)
+    try:
+        number = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError) as exc:
+        raise CloseError("INPUT_REQUIRED",
+                         "%s is not a decimal amount: %r" % (label, value)) from exc
+    if not number.is_finite():
+        raise CloseError("INPUT_REQUIRED", "%s is not finite: %r" % (label, value))
+    return number
+
+
+def _money(value: Optional[Decimal]) -> Optional[str]:
+    if value is None:
+        return None
+    if value == 0:
+        value = abs(value)
+    text = format(value, "f")
+    return text
+
+
+def _ratio(numerator: Decimal, denominator: Decimal) -> Optional[str]:
+    if denominator == 0:
+        return None
+    return format((numerator / denominator).quantize(Decimal("0.0001")),
+                  "f")
+
+
+def _csv_safe(value: Any, *, money: bool = False) -> str:
+    """Prevent spreadsheet formula injection in external text cells.
+
+    Numeric amount columns stay untouched so a real negative amount is not
+    turned into text; text starting with a formula trigger is prefixed with an
+    apostrophe.
+    """
+    text = _text(value)
+    if money:
+        return text
+    if text and text[0] in ("=", "+", "@"):
+        return "'" + text
+    return text
+
+
+def _read_json(path: Path, label: str) -> Dict[str, Any]:
+    if not path.is_file():
+        raise CloseError("INPUT_REQUIRED", "%s not found: %s" % (label, path))
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CloseError("INPUT_REQUIRED", "%s is not valid JSON: %s"
+                         % (label, exc)) from exc
+    if not isinstance(data, dict):
+        raise CloseError("INPUT_REQUIRED", "%s must be a JSON object" % label)
+    return data
+
+
+def _canonical_dir(case_dir: Path) -> Path:
+    path = Path(case_dir) / "canonical"
+    if not (path / "manifest.json").is_file():
+        raise CloseError("INPUT_REQUIRED",
+                         "canonical bundle not found; run close mapping --confirm first (%s)"
+                         % path)
+    return path
+
+
+def _canonical_snapshot(case_dir: Path) -> Dict[str, Any]:
+    canonical = _canonical_dir(case_dir)
+    files = []
+    for path in sorted(canonical.rglob("*")):
+        if path.is_file():
+            files.append({"path": path.relative_to(canonical).as_posix(),
+                          "sha256": _sha_file(path),
+                          "bytes": path.stat().st_size})
+    return {"files": files, "fingerprint": _fingerprint(files)}
+
+
+def _load_canonical_finance():
+    try:
+        from verovo_healthcheck import canonical_finance
+        return canonical_finance
+    except ImportError:
+        # The buyer-ledger package is deliberately standalone; the repo-local
+        # healthcheck is the single financial engine and is imported as a
+        # sibling checkout, never vendored or reimplemented here.
+        root = Path(__file__).resolve().parents[2]
+        healthcheck = root / "healthcheck"
+        if healthcheck.is_dir() and str(healthcheck) not in sys.path:
+            sys.path.insert(0, str(healthcheck))
+        from verovo_healthcheck import canonical_finance
+        return canonical_finance
+
+
+def _read_rule_map(canonical: Path) -> Tuple[Dict[str, Any], str]:
+    path = canonical / "rule-map.json"
+    if not path.is_file():
+        raise CloseError("INPUT_REQUIRED", "canonical/rule-map.json is missing")
+    raw = path.read_bytes()
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise CloseError("INPUT_REQUIRED", "canonical rule map is invalid: %s" % exc)
+    if not isinstance(data, dict) or not isinstance(data.get("rules"), list):
+        raise CloseError("INPUT_REQUIRED", "canonical rule map needs a rules array")
+    return data, _sha_bytes(raw)
+
+
+def _rule_versions(rule_map: Dict[str, Any]) -> List[Dict[str, Any]]:
+    out = []
+    for rule in rule_map.get("rules", []):
+        if not isinstance(rule, dict):
+            continue
+        out.append({
+            "rule_id": _text(rule.get("rule_id")),
+            "kind": _text(rule.get("kind")),
+            "version": _text(rule.get("version")),
+            "method": _text(rule.get("method")) or None,
+            "unit_price": _text(rule.get("unit_price")) or None,
+            "currency": _text(rule.get("currency")).upper() or None,
+            "unit": _text(rule.get("unit")) or None,
+            "valid_from": _text(rule.get("valid_from")) or None,
+            "valid_to": _text(rule.get("valid_to")) or None,
+            "confirmed_by": _text(rule.get("confirmed_by")) or None,
+            "confirmed_at": _text(rule.get("confirmed_at")) or None,
+            "source_ref": _text(rule.get("source_ref")) or None,
+        })
+    return out
+
+
+# ---------------------------------------------------------------------------
+# calculation
+# ---------------------------------------------------------------------------
+
+def _calculation_projection(outcome: Dict[str, Any]) -> Dict[str, Any]:
+    """Canonical, timestamp-free projection used for the replay fingerprint."""
+    def trim_conclusions(name: str) -> List[Dict[str, Any]]:
+        rows = []
+        for row in (outcome.get("evidence_conclusions") or {}).get(name, []):
+            rows.append({
+                "id": row.get("id"), "status": row.get("status"),
+                "recalculation_status": row.get("recalculation_status"),
+                "basis": row.get("basis"), "reason": row.get("reason"),
+                "independence": row.get("independence"),
+                "control_domain": row.get("control_domain"),
+            })
+        return rows
+
+    intake = outcome.get("intake_report") or {}
+    case = outcome.get("case") or {}
+    economics = outcome.get("economics")
+    return {
+        "axes": {axis: outcome.get(axis) for axis in AXES},
+        "verdicts": {name: trim_conclusions(name) for name in VERDICT_NAMES},
+        "intake": {
+            "reconciliation": intake.get("reconciliation"),
+            "counts": intake.get("counts"),
+            "duplicates": intake.get("duplicates"),
+            "charge_amount_mismatches": intake.get("charge_amount_mismatches"),
+            "financial_status": intake.get("financial_status"),
+            "open_items": intake.get("open_items"),
+        },
+        "case": {
+            "tasks": case.get("tasks"),
+            "usage": case.get("usage"),
+            "cost_items": case.get("cost_items"),
+            "outcomes": case.get("outcomes"),
+            "open_items": case.get("open_items"),
+            "financial_status": case.get("financial_status"),
+        },
+        "economics": None if economics is None else {
+            "totals": economics.get("totals"),
+            "findings": economics.get("findings"),
+            "unallocated": economics.get("unallocated"),
+            "allocation_coverage": economics.get("allocation_coverage"),
+            "coverage": economics.get("coverage"),
+        },
+    }
+
+
+def _blocked_outcome(job: Dict[str, Any], manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """Explicit cannot-calculate outcome for an invoice-only bundle.
+
+    A single invoice document is a valid input, but it is not a ledger and no
+    amount may be invented.  The report still lists the gap and keeps every
+    axis blocked.
+    """
+    documents = [item for item in manifest.get("documents") or []
+                 if isinstance(item, dict)]
+    open_items = [{
+        "kind": "missing_invoice_lines",
+        "detail": "no table invoice/bill line is available; no amount is booked",
+        "source": "", "status": "open", "domain": "finance",
+    }]
+    return {
+        "schema_version": "1.0",
+        "kind": "verovo.canonical-finance",
+        "case_id": job["job_id"],
+        "status": "blocked",
+        "finance_status": "blocked", "verification_status": "blocked",
+        "delivery_status": "blocked", "economics_status": "blocked",
+        "intake_report": {
+            "status": "blocked", "counts": {},
+            "reconciliation": {"status": "unknown", "billed_total": None,
+                               "billed_subtotal": None, "reconciled_charges": [],
+                               "counts": {}},
+            "reconciliation_rows": [], "open_items": open_items,
+            "duplicates": [], "charge_amount_mismatches": [],
+            "financial_status": "open",
+        },
+        "case": {
+            "schema_version": "1.0", "case_id": job["job_id"],
+            "currency": job["currency"], "period": {"start": job["period"]["from"],
+                                                     "end": job["period"]["to"]},
+            "scope": {"vendor": job["vendor"], "account_ref": job["account"],
+                      "currency": job["currency"]},
+            "financial_status": "open", "open_items": open_items,
+            "tasks": [], "runs": [], "usage": [], "cost_items": [],
+            "outcomes": [], "documents": documents, "allocation_rules": [],
+        },
+        "economics": None,
+        "evidence_conclusions": {name: [] for name in VERDICT_NAMES},
+        "boundary": ("invoice-only input: no canonical ledger table exists, so no "
+                     "amount, reconciliation or verdict is produced"),
+    }
+
+
+def calculate(case_dir: Path) -> Dict[str, Any]:
+    """Run the existing canonical chain and persist a replayable calculation."""
+    case_dir = Path(case_dir)
+    job = load_period_job(case_dir / "period-job.json")
+    confirmed = case_dir / "intake" / "mapping-confirmed.json"
+    if not confirmed.is_file():
+        raise CloseError("REVIEW_REQUIRED",
+                         "the field mapping is not confirmed; nothing can be calculated")
+    canonical = _canonical_dir(case_dir)
+    snapshot = _canonical_snapshot(case_dir)
+    rule_map, rule_hash = _read_rule_map(canonical)
+    canonical_finance = _load_canonical_finance()
+    manifest = _read_json(canonical / "manifest.json", "canonical/manifest.json")
+    try:
+        outcome = canonical_finance.run(canonical)
+    except ValueError as exc:
+        if not manifest.get("sources") and manifest.get("documents"):
+            outcome = _blocked_outcome(job, manifest)
+        else:
+            raise CloseError("INPUT_REQUIRED",
+                             "canonical calculation failed: %s" % exc) from exc
+    calculation = {
+        "schema": CALCULATION_SCHEMA,
+        "job_id": job["job_id"],
+        "calculated_at": _now_iso(),
+        "canonical_snapshot": snapshot,
+        "rule_map_hash": rule_hash,
+        "rule_versions": _rule_versions(rule_map),
+        "code_version": CODE_VERSION,
+        "algorithm_versions": dict(ALGORITHM_VERSIONS),
+        "statuses": {axis: outcome.get(axis) for axis in AXES},
+        "calculation_fingerprint": _fingerprint(_calculation_projection(outcome)),
+        "outcome": outcome,
+    }
+    _write_json(case_dir / "calculation.json", calculation)
+    return calculation
+
+
+def load_calculation(case_dir: Path) -> Dict[str, Any]:
+    return _read_json(Path(case_dir) / "calculation.json", "calculation.json")
+
+
+# ---------------------------------------------------------------------------
+# report projection
+# ---------------------------------------------------------------------------
+
+def _read_bills(canonical: Path) -> Dict[str, Dict[str, Any]]:
+    path = canonical / "bills.csv"
+    if not path.is_file():
+        # A usage-only or invoice-only bundle can still produce a partial
+        # report: missing invoice lines are gaps, never zero-filled amounts.
+        return {}
+    rows: Dict[str, Dict[str, Any]] = {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames:
+            raise CloseError("INPUT_REQUIRED", "canonical/bills.csv has no header")
+        for line_no, row in enumerate(reader, start=2):
+            clean = {_text(key).lower(): _text(value) for key, value in row.items()}
+            charge_id = clean.get("charge_id") or ""
+            if charge_id:
+                clean["__line__"] = str(line_no)
+                rows.setdefault(charge_id, clean)
+    return rows
+
+
+def _manifest_sources(manifest: Dict[str, Any]) -> Dict[str, List[Dict[str, Any]]]:
+    sources = manifest.get("sources") or {}
+    return sources if isinstance(sources, dict) else {}
+
+
+def _source_domains(manifest: Dict[str, Any]) -> Dict[str, str]:
+    domains: Dict[str, str] = {}
+    for role, entries in _manifest_sources(manifest).items():
+        for entry in entries:
+            if isinstance(entry, dict) and _text(entry.get("control_domain")):
+                domains[role] = _text(entry.get("control_domain"))
+    return domains
+
+
+def _aggregate_status(rows: Iterable[Dict[str, Any]]) -> str:
+    statuses = [_text(row.get("status")) for row in rows]
+    if not statuses:
+        return "not_applicable"
+    if "FAIL" in statuses:
+        return "FAIL"
+    if "UNKNOWN" in statuses:
+        return "UNKNOWN"
+    if "UNPROVABLE" in statuses:
+        return "UNPROVABLE"
+    if all(status == "PASS" for status in statuses):
+        return "PASS"
+    return "UNKNOWN"
+
+
+def _verdict(name: str, conclusions: Dict[str, List[Dict[str, Any]]],
+             *, evidence_map: Dict[str, str] = None,
+             limitations: List[str] = None) -> Dict[str, Any]:
+    rows = []
+    for row in conclusions.get(name, []):
+        item = {
+            "id": row.get("id"),
+            "status": row.get("status"),
+            "recalculation_status": row.get("recalculation_status"),
+            "basis": row.get("basis"),
+            "reason": row.get("reason"),
+            "source_ref": row.get("source_ref"),
+            "control_domain": row.get("control_domain"),
+            "independence": row.get("independence"),
+            "rule_id": (row.get("rule_ref") or {}).get("rule_id")
+            if isinstance(row.get("rule_ref"), dict) else row.get("rule_id"),
+            "rule_version": (row.get("rule_ref") or {}).get("version")
+            if isinstance(row.get("rule_ref"), dict) else row.get("rule_version"),
+        }
+        if name == "Delivery Accepted":
+            item["task_id"] = (evidence_map or {}).get(
+                _text(row.get("source_ref")), None)
+        rows.append(item)
+    counts: Dict[str, int] = {}
+    for row in rows:
+        status = _text(row.get("status"))
+        counts[status] = counts.get(status, 0) + 1
+    return {
+        "verdict": name,
+        "status": _aggregate_status(rows),
+        "counts": counts,
+        "rows": rows,
+        "limitations": limitations or [],
+    }
+
+
+def _adjustment(raw: Dict[str, Any]) -> Tuple[str, str]:
+    return (_text(raw.get("adjustment_type")).lower(),
+            _text(raw.get("adjustment_state")).lower())
+
+
+def _line_basis(raw: Dict[str, Any], row: Dict[str, Any],
+                rule_ref: Optional[Dict[str, Any]]) -> str:
+    parts = ["invoice line"]
+    if row.get("usage_source_ref"):
+        parts.append("distinct usage source %s" % row["usage_source_ref"])
+    if rule_ref:
+        parts.append("approved rule %s@%s" % (
+            _text(rule_ref.get("rule_id")), _text(rule_ref.get("version"))))
+    return "; ".join(parts)
+
+
+def _conclusion_status(conclusions: Dict[str, List[Dict[str, Any]]],
+                       name: str, charge_id: str) -> Optional[str]:
+    for row in conclusions.get(name, []):
+        if _text(row.get("id")) == charge_id:
+            return _text(row.get("status")) or None
+    return None
+
+
+def _finding(line_ref: str, kind: str, detail: str, *, amount: Optional[Decimal],
+             candidate_causes: List[str], next_evidence: str, owner: str,
+             evidence_refs: List[str], state: str = "unresolved") -> Dict[str, Any]:
+    return {
+        "line_ref": line_ref,
+        "kind": kind,
+        "detail": detail,
+        "impact_amount": _money(amount),
+        "impact_currency": None,
+        "candidate_causes": candidate_causes,
+        "confirmed_cause": None,
+        "qualification": "unresolved",
+        "state": state,
+        "owner": owner,
+        "next_evidence": next_evidence,
+        "evidence_refs": evidence_refs,
+    }
+
+
+def _source_evidence_index(manifest: Dict[str, Any], canonical: Path,
+                           rule_map: Dict[str, Any],
+                           lines: List[Dict[str, Any]]) -> Dict[str, Any]:
+    sources = []
+    for role, entries in _manifest_sources(manifest).items():
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            source_path = canonical / _text(entry.get("path"))
+            sources.append({
+                "role": role,
+                "path": _text(entry.get("path")),
+                "sha256": _sha_file(source_path) if source_path.is_file() else None,
+                "rule_id": entry.get("rule_id"),
+                "rule_version": entry.get("rule_version"),
+                "control_domain": entry.get("control_domain"),
+                "independence": entry.get("independence"),
+            })
+    rules = []
+    for rule in rule_map.get("rules", []):
+        if not isinstance(rule, dict):
+            continue
+        rules.append({
+            "rule_id": rule.get("rule_id"),
+            "kind": rule.get("kind"),
+            "version": rule.get("version"),
+            "method": rule.get("method"),
+            "unit_price": rule.get("unit_price"),
+            "currency": rule.get("currency"),
+            "unit": rule.get("unit"),
+            "valid_from": rule.get("valid_from"),
+            "valid_to": rule.get("valid_to"),
+            "confirmed_by": rule.get("confirmed_by"),
+            "confirmed_at": rule.get("confirmed_at"),
+            "source_ref": rule.get("source_ref"),
+        })
+    documents = []
+    for document in manifest.get("documents") or []:
+        if isinstance(document, dict):
+            documents.append({
+                "path": document.get("path"),
+                "sha256": document.get("sha256"),
+                "document_ref": document.get("document_ref"),
+                "review_status": document.get("review_status"),
+                "booking_status": document.get("booking_status"),
+            })
+    return {
+        "schema": EVIDENCE_SCHEMA,
+        "sources": sources,
+        "rule_map": {"rules": rules},
+        "lines": [{key: line.get(key) for key in (
+            "line_ref", "charge_id", "source_ref", "usage_source_ref",
+            "quantity", "unit_price", "rule_id", "rule_version", "basis",
+            "finding_ids")}
+            for line in lines],
+        "documents": documents,
+        "boundary": ("Evidence index is a local index of observed inputs and approved "
+                     "rules; it is not a cryptographic proof of supplier data."),
+    }
+
+
+def _load_review(case_dir: Path) -> Optional[Dict[str, Any]]:
+    path = Path(case_dir) / "review.json"
+    if not path.is_file():
+        return None
+    review = _read_json(path, "review.json")
+    return review
+
+
+def _review_projection(review: Optional[Dict[str, Any]],
+                       open_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    unresolved = [item for item in open_items
+                  if item.get("state") not in ("resolved", "closed",
+                                               "not_applicable")]
+    if not review:
+        return {
+            "state": "not_signed",
+            "by": None,
+            "at": None,
+            "approved_scope": None,
+            "reservations": [],
+            "next_review": None,
+            "signoff": {"state": "not_signed", "by": None, "at": None},
+            "unresolved_items": [item["id"] for item in unresolved],
+            "payment_authorization": False,
+        }
+    return {
+        "state": ("reviewed_not_signed"
+                  if _text((review.get("signoff") or {}).get("state"))
+                  in ("", "not_signed") else _text(review.get("state")) or "reviewed"),
+        "by": review.get("reviewer"),
+        "at": review.get("reviewed_at"),
+        "approved_scope": review.get("approved_scope"),
+        "reservations": list(review.get("reservations") or []),
+        "next_review": review.get("next_review"),
+        "signoff": dict(review.get("signoff") or {
+            "state": "not_signed", "by": None, "at": None}),
+        "unresolved_items": [item["id"] for item in unresolved],
+        "payment_authorization": False,
+        "attestation": review.get("attestation"),
+    }
+
+
+def _line_reconciliation(outcome: Dict[str, Any], bills: Dict[str, Dict[str, Any]],
+                        conclusions: Dict[str, List[Dict[str, Any]]],
+                        findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    rows = []
+    for row in outcome["intake_report"].get("reconciliation_rows", []):
+        charge_id = _text(row.get("charge_id"))
+        raw = bills.get(charge_id, {})
+        amount = _dec(row.get("bill_amount") or raw.get("amount"),
+                      "bill %s amount" % charge_id)
+        usage_amount = _dec(row.get("usage_amount"),
+                            "usage amount for %s" % charge_id)
+        adjustment_type, adjustment_state = _adjustment(raw)
+        recalc = row.get("recalculation") or {}
+        bill_recalc = recalc.get("bill") or {}
+        rule_ref = bill_recalc.get("rule_ref") or {}
+        expected = _dec(bill_recalc.get("expected_amount"),
+                        "expected amount for %s" % charge_id)
+        rule_difference = (_dec(bill_recalc.get("difference"),
+                                "rule difference for %s" % charge_id)
+                           if bill_recalc else None)
+
+        included = True
+        matched = Decimal("0")
+        adjustment = Decimal("0")
+        sign_mismatch = False
+        if adjustment_type in ("credit", "refund") and adjustment_state \
+                not in APPLIED_STATES:
+            classification = "excluded_pending_adjustment"
+            included = False
+        elif adjustment_type in ADJUSTMENT_TYPES and adjustment_state in APPLIED_STATES:
+            # Credit/refund reduce the amount; tax/discount add to it.  A
+            # reversed sign is not silently accepted as an adjustment.
+            sign_mismatch = bool(
+                amount is not None and (
+                    (adjustment_type in ("credit", "refund") and amount > 0)
+                    or (adjustment_type in ("tax", "discount") and amount < 0)))
+            if sign_mismatch:
+                classification = "residual"
+            else:
+                classification = "explained_adjustment"
+                adjustment = amount or Decimal("0")
+        elif adjustment_type and adjustment_type not in ADJUSTMENT_TYPES:
+            classification = "residual"
+        else:
+            if amount is not None and usage_amount is not None \
+                    and _text(row.get("usage_id")):
+                if amount >= 0 and usage_amount >= 0:
+                    matched = min(amount, usage_amount)
+            classification = "matched_posting" if (
+                amount is not None and matched == amount and amount != 0
+            ) else "residual"
+        residual = (amount - matched - adjustment) \
+            if included and amount is not None else (
+                Decimal("0") if not included else None)
+        line_ref = _text(row.get("source_ref")) or "charge:%s" % charge_id
+        line_findings = [finding["id"] for finding in findings
+                         if finding["line_ref"] == line_ref]
+        rows.append({
+            "line_ref": line_ref,
+            "charge_id": charge_id,
+            "source_ref": row.get("source_ref"),
+            "usage_id": row.get("usage_id"),
+            "usage_source_ref": row.get("usage_source_ref"),
+            "amount": _money(amount),
+            "currency": _text(row.get("bill_currency") or raw.get("currency")).upper()
+            or None,
+            "quantity": _text(row.get("quantity")) or _text(
+                raw.get("quantity")) or None,
+            "unit_price": _text(row.get("unit_price")) or _text(
+                raw.get("unit_price")) or None,
+            "classification": classification,
+            "included_in_invoice_total": included,
+            "matched_amount": _money(matched),
+            "adjustment_amount": _money(adjustment),
+            "residual_amount": _money(residual),
+            "source_difference": _money(
+                (amount - matched) if amount is not None else None),
+            "expected_amount": _money(expected),
+            "rule_difference": _money(rule_difference),
+            "difference": _money(rule_difference if rule_difference is not None
+                                 else ((amount - matched)
+                                       if amount is not None else None)),
+            "recalculation_status": row.get("recalculation_status"),
+            "invoice_reconciled": _conclusion_status(
+                conclusions, "Invoice Reconciled", charge_id),
+            "vendor_reconciled": _conclusion_status(
+                conclusions, "Vendor Reconciled", charge_id),
+            "buyer_verified": _conclusion_status(conclusions, "Buyer Verified",
+                                                 charge_id),
+            "rule_id": _text(rule_ref.get("rule_id")) or _text(
+                raw.get("rate_rule")) or None,
+            "rule_version": _text(rule_ref.get("version")) or None,
+            "adjustment_type": adjustment_type or None,
+            "adjustment_state": adjustment_state or None,
+            "adjustment_sign_mismatch": sign_mismatch,
+            "state": ("unresolved" if (
+                amount is None or not included or sign_mismatch
+                or _conclusion_status(conclusions, "Invoice Reconciled",
+                                      charge_id) == "UNPROVABLE"
+                or _text(row.get("recalculation_status")) == "unknown") else
+                "matched" if classification == "matched_posting" else
+                "adjustment" if classification == "explained_adjustment" else
+                "difference"),
+            "basis": _line_basis(raw, row, rule_ref),
+            "finding_ids": line_findings,
+        })
+    return rows
+
+
+def _collect_findings(lines: List[Dict[str, Any]],
+                      outcome: Dict[str, Any]) -> List[Dict[str, Any]]:
+    findings: List[Dict[str, Any]] = []
+
+    def add(line: Dict[str, Any], kind: str, detail: str,
+            amount: Optional[Decimal], candidates: List[str],
+            next_evidence: str, owner: str) -> None:
+        if any(item["line_ref"] == line["line_ref"] and item["kind"] == kind
+               for item in findings):
+            return
+        findings.append(_finding(
+            line["line_ref"], kind, detail, amount=amount,
+            candidate_causes=candidates, next_evidence=next_evidence,
+            owner=owner, evidence_refs=[
+                ref for ref in (line.get("source_ref"),
+                                line.get("usage_source_ref")) if ref]))
+
+    for line in lines:
+        amount = _dec(line.get("amount"), "line amount")
+        if amount is None:
+            add(line, "missing_invoice_amount",
+                "the invoice line has no amount; invoice total and open "
+                "difference remain unknown, never zero",
+                None, ["unexplained"],
+                "invoice line amount with source evidence", "finance")
+            line["state"] = "unresolved"
+            continue
+        if not line["included_in_invoice_total"]:
+            add(line, "credit_or_refund_not_applied",
+                "credit/refund is issued or pending and is excluded from invoice "
+                "total; it is open exposure, not a realized saving",
+                amount, ["credit_or_commitment"],
+                "credit application record + period revision", "finance")
+            line["state"] = "unresolved"
+            continue
+        if line.get("adjustment_sign_mismatch"):
+            add(line, "adjustment_sign_mismatch",
+                "the adjustment sign contradicts its type; it stays in the "
+                "residual bucket instead of becoming a known adjustment",
+                amount, ["unexplained"],
+                "signed credit/tax line with source evidence", "finance")
+        if line["classification"] == "explained_adjustment":
+            continue
+        invoice_status = line.get("invoice_reconciled")
+        rule_status = line.get("recalculation_status")
+        if invoice_status == "UNPROVABLE":
+            add(line, "invoice_reconciled_unprovable",
+                "no distinct second ledger record; invoice reconciliation stays "
+                "UNPROVABLE even if rule repricing is possible",
+                amount, ["unexplained"],
+                "independent usage/cost export for the same charge", "finance")
+        elif invoice_status == "FAIL":
+            add(line, "invoice_reconciled_fail",
+                "the distinct ledger records disagree; neither amount is selected "
+                "as truth",
+                _dec(line.get("residual_amount"), "residual") or amount,
+                ["usage_mismatch", "price_rule_mismatch"],
+                "line-level bill/usage source evidence", "finance")
+        if rule_status == "difference" or (line.get("rule_difference") not in (None, "", "0", "0.00")):
+            add(line, "rule_repriced_fail",
+                "the bill or usage amount differs from the approved rule "
+                "recalculation; the difference is retained, not reclassified as a "
+                "vendor error",
+                _dec(line.get("rule_difference"), "rule difference"),
+                ["price_rule_mismatch", "rounding_or_precision"],
+                "approved contract price, unit and precision evidence", "procurement")
+        elif rule_status == "unknown":
+            add(line, "rule_repriced_unknown",
+                "the approved rule could not decide this line", None,
+                ["unexplained"], "applicable price rule and measured quantity",
+                "procurement")
+        if line.get("adjustment_type") and line.get("adjustment_type") not in ADJUSTMENT_TYPES:
+            add(line, "unsupported_adjustment_type",
+                "adjustment type %r is not supported; it stays in the residual "
+                "bucket" % line.get("adjustment_type"), amount,
+                ["unexplained"], "explicit tax/credit/refund line classification",
+                "finance")
+    return findings
+
+
+def _open_items(lines: List[Dict[str, Any]], findings: List[Dict[str, Any]],
+                outcome: Dict[str, Any], manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    seen = set()
+
+    def add(kind: str, detail: str, *, line_ref: str = "", amount: Any = None,
+            currency: Any = None, owner: str = "finance",
+            candidates: Optional[List[str]] = None, next_evidence: str = "",
+            state: str = "unresolved", evidence_refs: Optional[List[str]] = None,
+            finding_id: Optional[str] = None) -> None:
+        # One review item per (kind, line): several findings can reference the
+        # same line, but the queue must not duplicate the request or its amount.
+        key = (kind, line_ref)
+        if key in seen:
+            return
+        seen.add(key)
+        items.append({
+            "id": "D-%d" % (len(items) + 1),
+            "kind": kind,
+            "detail": detail,
+            "line_ref": line_ref or None,
+            "amount": _money(_dec(amount, "open item amount")) if amount not in (None, "") else None,
+            "currency": _text(currency) or None,
+            "state": state,
+            "candidate_causes": candidates or [],
+            "confirmed_cause": None,
+            "owner": owner,
+            "next_evidence": next_evidence,
+            "evidence_refs": evidence_refs or [],
+            "finding_id": finding_id,
+        })
+
+    if not lines:
+        add("missing_invoice_lines",
+            "no invoice/bill line is available; invoice_total, matched postings "
+            "and the open difference remain unknown rather than zero",
+            owner="finance", next_evidence="invoice or bill export for this period")
+
+    for finding in findings:
+        add(finding["kind"], finding["detail"], line_ref=finding["line_ref"],
+            amount=finding["impact_amount"], owner=finding["owner"],
+            candidates=finding["candidate_causes"],
+            next_evidence=finding["next_evidence"],
+            evidence_refs=finding["evidence_refs"], finding_id=finding["id"])
+
+    for item in outcome.get("case", {}).get("open_items", []):
+        if not isinstance(item, dict):
+            continue
+        if _text(item.get("status")) in ("resolved", "closed"):
+            continue
+        add(_text(item.get("kind")) or "open_item",
+            _text(item.get("detail")) or "open item",
+            line_ref=_text(item.get("source")) or "",
+            amount=item.get("amount"), owner="finance",
+            next_evidence="review the named source and record the resolution",
+            state="unresolved")
+
+    economics = outcome.get("economics") or {}
+    decisive_failure_tasks = {
+        _text(row.get("task_id")) for row in economics.get("outcomes", [])
+        if isinstance(row, dict) and row.get("verified") is True
+        and _text(row.get("status")).lower() in
+        ("failure", "failed", "rejected", "cancelled")}
+    for item in economics.get("findings", []):
+        if not isinstance(item, dict):
+            continue
+        code = _text(item.get("code")) or "economics_finding"
+        task_id = _text(item.get("task_id"))
+        if code == "unverified_outcome" and task_id and \
+                task_id in decisive_failure_tasks:
+            # A buyer-verified FAIL is a decision, not an open evidence gap.
+            continue
+        add(code, _text(item.get("message")) or "economics finding",
+            line_ref=task_id or _text(item.get("id")) or "",
+            amount=item.get("amount"), owner="operations",
+            next_evidence="task/run/outcome evidence", state="unresolved")
+    for item in economics.get("unallocated", []):
+        if not isinstance(item, dict):
+            continue
+        add(_text(item.get("kind")) or "unallocated",
+            _text(item.get("reason")) or "unallocated cost",
+            line_ref=_text(item.get("id")) or "", amount=item.get("amount"),
+            currency=item.get("currency"), owner="operations",
+            next_evidence="task mapping or approved allocation driver",
+            state="unresolved")
+
+    for document in manifest.get("documents") or []:
+        if not isinstance(document, dict):
+            continue
+        add("invoice_draft",
+            "invoice/OCR document is unreviewed and unbooked: %s"
+            % _text(document.get("path")),
+            state="unresolved", owner="finance",
+            next_evidence="human review of the invoice document",
+            evidence_refs=[_text(document.get("document_ref"))])
+
+    domains = _source_domains(manifest)
+    if not any(domain == "buyer" for domain in domains.values()):
+        add("buyer_verified_unprovable",
+            "all ledger sources are vendor-controlled; amount agreement is not "
+            "buyer-independent verification",
+            state="unresolved", owner="finance",
+            next_evidence="buyer-controlled usage or cost record")
+    return items
+
+
+def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
+                       review: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    case_dir = Path(case_dir)
+    canonical = _canonical_dir(case_dir)
+    job = load_period_job(case_dir / "period-job.json")
+    manifest = _read_json(canonical / "manifest.json", "canonical/manifest.json")
+    rule_map, rule_hash = _read_rule_map(canonical)
+    outcome = calculation["outcome"]
+    conclusions = outcome.get("evidence_conclusions") or {}
+    bills = _read_bills(canonical)
+
+    # First pass: line classifications and finding references.
+    draft_lines = _line_reconciliation(outcome, bills, conclusions, [])
+    findings = _collect_findings(draft_lines, outcome)
+    for index, finding in enumerate(findings, start=1):
+        finding["id"] = "F-%d" % index
+    lines = _line_reconciliation(outcome, bills, conclusions, findings)
+
+    included = [line for line in lines if line["included_in_invoice_total"]]
+    has_amounts = bool(lines) and not any(line["amount"] is None
+                                         for line in included)
+    if has_amounts:
+        invoice_total = sum((_dec(line["amount"], "line amount") or Decimal("0")
+                             for line in included), Decimal("0"))
+        matched_postings = sum((_dec(line["matched_amount"], "matched amount")
+                                or Decimal("0") for line in included), Decimal("0"))
+        known_adjustments = sum((_dec(line["adjustment_amount"], "adjustment amount")
+                                 or Decimal("0") for line in included), Decimal("0"))
+        residual = sum((_dec(line["residual_amount"], "residual amount")
+                        or Decimal("0") for line in included), Decimal("0"))
+        if invoice_total != matched_postings + known_adjustments + residual:
+            raise CloseError(
+                "INTERNAL_ERROR",
+                "report line buckets do not close: invoice %s != matched %s + "
+                "adjustments %s + residual %s"
+                % (invoice_total, matched_postings, known_adjustments, residual))
+
+        tax_applied = sum((_dec(line["adjustment_amount"], "tax") or Decimal("0")
+                           for line in included
+                           if line.get("adjustment_type") == "tax"), Decimal("0"))
+        credits_applied = sum((_dec(line["adjustment_amount"], "credit")
+                               or Decimal("0") for line in included
+                               if line.get("adjustment_type") in
+                               ("credit", "refund", "discount")), Decimal("0"))
+        credits_pending = sum((_dec(line["amount"], "pending credit")
+                               or Decimal("0") for line in lines
+                               if line["classification"] ==
+                               "excluded_pending_adjustment"), Decimal("0"))
+        rule_repriced = sum((_dec(line["expected_amount"], "expected")
+                             or Decimal("0") for line in lines
+                             if line.get("expected_amount") not in (None, "")),
+                            Decimal("0"))
+        rule_difference = sum((_dec(line["rule_difference"], "rule difference")
+                               or Decimal("0") for line in lines
+                               if line.get("rule_difference") not in (None, "")),
+                              Decimal("0"))
+        buyer_independent = sum(
+            (_dec(line["matched_amount"], "buyer matched") or Decimal("0")
+             for line in included if line.get("buyer_verified") == "PASS"),
+            Decimal("0"))
+        negative_included = any(
+            (_dec(line["amount"], "line amount") or Decimal("0")) < 0
+            for line in included)
+    else:
+        # Missing invoice lines/amounts are unknown, never zero.  A partial
+        # report can still list gaps without inventing a total.
+        invoice_total = matched_postings = known_adjustments = residual = None
+        tax_applied = credits_applied = credits_pending = None
+        rule_repriced = rule_difference = buyer_independent = None
+        negative_included = False
+
+    amount_coverage = None
+    coverage_status = "comparable"
+    coverage_reason = None
+    if not lines:
+        coverage_status = "not_comparable"
+        coverage_reason = ("no invoice/bill line is available; invoice_total and "
+                           "the amount denominator remain unknown, not zero")
+    elif not has_amounts:
+        coverage_status = "not_comparable"
+        coverage_reason = ("one or more invoice lines have no amount; the total is "
+                           "unknown, not the sum of the known lines")
+    elif invoice_total <= 0 or negative_included:
+        coverage_status = "not_comparable"
+        coverage_reason = ("negative credit/tax or a non-positive invoice total makes "
+                           "the net denominator inapplicable; gross/net are shown "
+                           "separately")
+    else:
+        amount_coverage = _ratio(matched_postings, invoice_total)
+        if matched_postings > invoice_total:
+            coverage_status = "not_comparable"
+            coverage_reason = "matched postings exceed the invoice total; the ratio is refused"
+            amount_coverage = None
+    invoice_lines = [line for line in included
+                     if line["classification"] != "explained_adjustment"]
+    matched_lines = [line for line in invoice_lines
+                     if (_dec(line["matched_amount"], "matched") or Decimal("0")) > 0]
+    gross = (sum((_dec(line["amount"], "line amount") or Decimal("0")
+                  for line in included
+                  if (_dec(line["amount"], "line amount") or Decimal("0")) > 0),
+                 Decimal("0")) if has_amounts else None)
+    coverage = {
+        "record": {
+            "numerator": len(matched_lines),
+            "denominator": len(invoice_lines),
+            "ratio": _ratio(Decimal(len(matched_lines)),
+                            Decimal(len(invoice_lines))) if invoice_lines else None,
+        },
+        "amount": {
+            "numerator": _money(matched_postings),
+            "denominator": _money(invoice_total),
+            "ratio": amount_coverage,
+            "status": coverage_status,
+            "reason": coverage_reason,
+            "basis": "matched amount jointly supported by distinct bill and usage rows",
+        },
+        "gross_net": {
+            "gross_invoice_total": _money(gross),
+            "net_invoice_total": _money(invoice_total),
+            "credits_applied": _money(credits_applied),
+            "credits_pending": _money(credits_pending),
+        },
+        "boundary": ("record coverage and amount coverage have different "
+                     "denominators and are never combined into one percentage"),
+    }
+
+    evidence_map: Dict[str, str] = {}
+    for outcome_row in outcome.get("case", {}).get("outcomes", []):
+        if isinstance(outcome_row, dict):
+            ref = _text(outcome_row.get("source_ref"))
+            if ref:
+                evidence_map[ref] = _text(outcome_row.get("task_id")) or None
+
+    verdicts = {
+        "Rule Repriced": _verdict(
+            "Rule Repriced", conclusions,
+            limitations=["approved-rule recalculation only; not cross-source "
+                         "reconciliation"]),
+        "Invoice Reconciled": _verdict(
+            "Invoice Reconciled", conclusions,
+            limitations=["distinct source comparison only; equal amounts do not "
+                         "prove correctness"]),
+        "Vendor Reconciled": _verdict(
+            "Vendor Reconciled", conclusions,
+            limitations=["same-vendor comparison only; not buyer verification"]),
+        "Buyer Verified": _verdict(
+            "Buyer Verified", conclusions,
+            limitations=["procedural provenance only; not cryptographic identity "
+                         "proof; vendor-only sources cannot qualify"]),
+        "Delivery Accepted": _verdict(
+            "Delivery Accepted", conclusions, evidence_map=evidence_map,
+            limitations=["buyer acceptance evidence only; a FAIL is a decision, "
+                         "not an incomplete axis"]),
+    }
+
+    open_items = _open_items(lines, findings, outcome, manifest)
+    review_projection = _review_projection(review, open_items)
+    economics = outcome.get("economics")
+    if economics is None:
+        task_economics = {
+            "status": "not_applicable",
+            "reason": "no outcomes source was ingested; Task Economics is not "
+                      "applicable to this finance-only period",
+            "fully_loaded_cost": None,
+            "attributed_cost_subtotal": None,
+            "cost_status": None,
+            "cost_per_verified_success": None,
+            "roi": None,
+            "unallocated": [],
+            "findings": [],
+        }
+    else:
+        totals = economics.get("totals") or {}
+        economics_axis = outcome.get("economics_status")
+        task_economics = {
+            "status": (economics_axis if economics_axis in
+                       ("not_applicable", "partial", "complete") else "partial"),
+            "fully_loaded_cost": totals.get("fully_loaded_cost"),
+            "attributed_cost_subtotal": totals.get("attributed_cost_subtotal"),
+            "cost_status": totals.get("cost_status"),
+            "cost_per_verified_success": totals.get("cost_per_verified_success"),
+            "roi": totals.get("roi"),
+            "reason": totals.get("cost_per_verified_success_reason"),
+            "unallocated": economics.get("unallocated") or [],
+            "findings": economics.get("findings") or [],
+        }
+
+    limitations = [
+        "single currency; no FX conversion and no cross-currency summation",
+        "unreviewed invoice/OCR documents are not booked as cost",
+        "credits/refunds are open exposure until applied and independently "
+        "evidenced; no realized savings are claimed",
+        "tax lines are not re-derived; tax treatment requires human review",
+        "canonical finance slice covers one vendor/account/currency",
+        "rule applicability is human-confirmed; this report does not re-sign rules",
+        "this report is not a payment authorization",
+    ]
+    domains = _source_domains(manifest)
+    if not any(domain == "buyer" for domain in domains.values()):
+        limitations.append(
+            "no buyer-controlled ledger source; Buyer Verified remains UNPROVABLE")
+    if manifest.get("documents"):
+        limitations.append("%d invoice/OCR document(s) remain unreviewed"
+                           % len(manifest["documents"]))
+
+    report = {
+        "schema": REPORT_SCHEMA,
+        "job_id": job["job_id"],
+        "revision_id": "r1",
+        "generated_at": _now_iso(),
+        "scope": {
+            "buyer": job.get("buyer") or None,
+            "vendor": job["vendor"],
+            "account": job["account"],
+            "period": {"start": job["period"]["from"],
+                       "end": job["period"]["to"],
+                       "to_exclusive": True,
+                       "timezone": job["period"]["timezone"]},
+            "currency": job["currency"],
+        },
+        **{axis: outcome.get(axis) for axis in AXES},
+        "axes_semantics": {
+            "finance_status": "financial records, reconciliation gaps and cost "
+                              "allocation are closed as an operating state; it does "
+                              "not mean the difference is zero, the supplier is "
+                              "correct, or payment is authorized",
+            "verification_status": "task outcomes have buyer-procedural verification",
+            "delivery_status": "every task has a decisive Delivery Accepted PASS/FAIL",
+            "economics_status": "applicable outcome economics are complete",
+        },
+        "verdicts": verdicts,
+        "amounts": {
+            "currency": job["currency"],
+            "invoice_total": _money(invoice_total),
+            "rule_repriced": _money(rule_repriced),
+            "rule_repriced_subtotal": _money(rule_repriced),
+            "rule_repricing_difference": _money(rule_difference),
+            "matched_postings": _money(matched_postings),
+            "distinct_source_reconciled": _money(matched_postings),
+            "buyer_independent_attributable": _money(buyer_independent),
+            "known_adjustments": _money(known_adjustments),
+            "tax_applied": _money(tax_applied),
+            "credits_applied": _money(credits_applied),
+            "credits_pending": _money(credits_pending),
+            "open_difference": _money(residual),
+            "realized_savings": "0.00",
+            "amount_basis_note": ("Different calibers are not summed. invoice_total = "
+                                  "matched_postings + known_adjustments + "
+                                  "open_difference, using mutually exclusive invoice "
+                                  "lines; findings never add a second amount."),
+            "identity": {
+                "invoice_total": _money(invoice_total),
+                "matched_postings": _money(matched_postings),
+                "known_adjustments": _money(known_adjustments),
+                "open_difference": _money(residual),
+                "holds": ((invoice_total == matched_postings + known_adjustments +
+                           residual) if has_amounts else None),
+            },
+        },
+        "realized_savings": {
+            "amount": "0.00",
+            "claims": [],
+            "basis": ("Applied credits reduce the amount due but are not claimed as "
+                      "realized savings; issued/unapplied credits and refunds are "
+                      "open exposure only."),
+        },
+        "coverage": coverage,
+        "line_reconciliation": lines,
+        "findings": findings,
+        "findings_policy": {
+            "findings_never_summed": True,
+            "basis": ("line_reconciliation is the only amount denominator; multiple "
+                      "findings on one line share the same line and never create a "
+                      "second amount"),
+        },
+        "open_items": open_items,
+        "signoff": dict(review_projection.get("signoff") or {
+            "state": "not_signed", "by": None, "at": None}),
+        "source_hashes": ["sha256:%s" % item["sha256"]
+                          for item in calculation["canonical_snapshot"]["files"]],
+        "rule_map_hash": "sha256:%s" % rule_hash,
+        "review": review_projection,
+        "task_economics": task_economics,
+        "limitations": limitations,
+        "disclaimer": ("This report is a buyer-side review artifact: it is not an "
+                       "accounting voucher, not a payment authorization, not a "
+                       "supplier dispute, and not a statement that the supplier "
+                       "overcharged. Whether to settle, adjust or pay remains a "
+                       "human buyer decision."),
+        "replay": {
+            "canonical_files": calculation["canonical_snapshot"]["files"],
+            "canonical_fingerprint": calculation["canonical_snapshot"]["fingerprint"],
+            "period_job_sha256": _sha_file(case_dir / "period-job.json"),
+            "mapping_confirmed_sha256": _sha_file(case_dir / "intake" /
+                                                  "mapping-confirmed.json"),
+            "rule_map_sha256": rule_hash,
+            "rule_versions": calculation.get("rule_versions") or _rule_versions(rule_map),
+            "code_version": CODE_VERSION,
+            "algorithm_versions": dict(ALGORITHM_VERSIONS),
+            "calculation_fingerprint": calculation.get("calculation_fingerprint"),
+            "output_snapshot_fingerprint": None,
+            "lineage": [{
+                "line_ref": line["line_ref"],
+                "source_ref": line["source_ref"],
+                "usage_source_ref": line["usage_source_ref"],
+                "rule_id": line["rule_id"],
+                "rule_version": line["rule_version"],
+                "basis": line["basis"],
+            } for line in lines],
+        },
+    }
+    return report
+
+
+def _report_markdown(report: Dict[str, Any]) -> str:
+    amounts = report["amounts"]
+    lines = [
+        "# 买方可签核月结报告 · %s" % report["job_id"],
+        "",
+        "> %s" % report["disclaimer"],
+        "",
+        "## 一、核验范围",
+        "",
+        "- 买方：%s" % (report["scope"]["buyer"] or "—"),
+        "- 供应商：%s" % report["scope"]["vendor"],
+        "- 账户：%s" % report["scope"]["account"],
+        "- 账期：%s → %s（半开区间 [from, to)，%s）" % (
+            report["scope"]["period"]["start"], report["scope"]["period"]["end"],
+            report["scope"]["period"]["timezone"]),
+        "- 币种：%s" % report["scope"]["currency"],
+        "",
+        "## 二、五个核心金额（口径独立，不可简单相加）",
+        "",
+        "| 项目 | 金额 | 说明 |",
+        "|---|---:|---|",
+        "| 供应商账单总额 | %s | 账单行互斥分类后的合计 |" % _display(amounts["invoice_total"]),
+        "| 按已批准规则重新计价 | %s | 独立重算，不是跨源对账 |" % _display(amounts["rule_repriced_subtotal"]),
+        "| 来自独立来源的可归属金额 | %s | 账单与用量共同支持的金额 |" % _display(amounts["distinct_source_reconciled"]),
+        "| 已解释调整项 | %s | 已应用的 tax/credit/discount |" % _display(amounts["known_adjustments"]),
+        "| 未解释差额 | %s | 账单总额 − 共同支持金额 − 已解释调整 |" % _display(amounts["open_difference"]),
+        "",
+        "> %s" % amounts["amount_basis_note"],
+        "",
+        "## 三、完成轴与证据裁决（两个维度，不互相覆盖）",
+        "",
+        "| 完成轴 | 状态 |",
+        "|---|---|",
+    ]
+    for axis in AXES:
+        lines.append("| %s | %s |" % (axis, report[axis]))
+    lines.extend(["", "| 裁决 | 状态 | 行数 | 限制 |", "|---|---|---:|---|"])
+    for name in VERDICT_NAMES:
+        verdict = report["verdicts"][name]
+        lines.append("| %s | %s | %d | %s |" % (
+            name, verdict["status"], len(verdict["rows"]),
+            "；".join(verdict["limitations"])))
+    lines.extend([
+        "",
+        "## 四、覆盖（记录口径与金额口径分开）",
+        "",
+        "- 记录覆盖：%s/%s（%s）" % (
+            report["coverage"]["record"]["numerator"],
+            report["coverage"]["record"]["denominator"],
+            report["coverage"]["record"]["ratio"]),
+        "- 金额覆盖：%s/%s（%s，%s）" % (
+            _display(report["coverage"]["amount"]["numerator"]),
+            _display(report["coverage"]["amount"]["denominator"]),
+            _display(report["coverage"]["amount"]["ratio"]),
+            report["coverage"]["amount"]["status"]),
+        "- 总额口径：gross %s / net %s" % (
+            _display(report["coverage"]["gross_net"]["gross_invoice_total"]),
+            _display(report["coverage"]["gross_net"]["net_invoice_total"])),
+        "",
+        "## 五、逐行差异",
+        "",
+        "| 行 | 账单金额 | 共同支持 | 未解释 | 分类 | 裁决依据 |",
+        "|---|---:|---:|---:|---|---|",
+    ])
+    for line in report["line_reconciliation"]:
+        lines.append("| %s | %s | %s | %s | %s | %s |" % (
+            line["line_ref"], line["amount"], line["matched_amount"],
+            line["residual_amount"], line["classification"], line["basis"]))
+    lines.extend(["", "## 六、处理清单", ""])
+    if report["open_items"]:
+        lines.append("| ID | 类型 | 行 | 金额 | 责任方 | 后续证据 |")
+        lines.append("|---|---|---|---:|---|---|")
+        for item in report["open_items"]:
+            lines.append("| %s | %s | %s | %s | %s | %s |" % (
+                item["id"], item["kind"], item["line_ref"] or "—",
+                item["amount"] or "—", item["owner"], item["next_evidence"]))
+    else:
+        lines.append("（无 open items）")
+    lines.extend([
+        "",
+        "## 七、Task Economics",
+        "",
+        "- 状态：%s" % report["task_economics"]["status"],
+        "- fully loaded cost：%s" % _display(report["task_economics"]["fully_loaded_cost"]),
+        "- cost per verified success：%s" % _display(report["task_economics"]["cost_per_verified_success"]),
+        "- ROI：%s" % _display(report["task_economics"]["roi"]),
+        "",
+        "## 八、审核区",
+        "",
+        "- 状态：%s" % report["review"]["state"],
+        "- 复核人：%s（%s）" % (report["review"]["by"] or "—",
+                               report["review"]["at"] or "—"),
+        "- 批准范围：%s" % (report["review"]["approved_scope"] or "—"),
+        "- 保留意见：%s" % ("；".join(report["review"]["reservations"]) or "—"),
+        "- 下次复核：%s" % (report["review"]["next_review"] or "—"),
+        "- 未闭合项：%d；付款授权：%s" % (
+            len(report["review"]["unresolved_items"]),
+            report["review"]["payment_authorization"]),
+        "",
+        "## 九、重放元数据与限制",
+        "",
+        "- 输入快照指纹：`%s`" % report["replay"]["canonical_fingerprint"],
+        "- 规则表 hash：`%s`" % report["replay"]["rule_map_sha256"],
+        "- 代码版本：`%s`" % report["replay"]["code_version"],
+        "- 输出快照指纹：`%s`" % (report["replay"]["output_snapshot_fingerprint"] or "—"),
+        "",
+    ])
+    lines.extend("- %s" % item for item in report["limitations"])
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _write_csv(path: Path, fieldnames: List[str], rows: List[Dict[str, Any]],
+               money_fields: Tuple[str, ...] = ()) -> None:
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore",
+                            lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({field: _csv_safe(row.get(field),
+                                          money=field in money_fields)
+                         for field in fieldnames})
+    _write_text(path, buffer.getvalue())
+
+
+def build_report(case_dir: Path) -> Dict[str, Any]:
+    """Build the six report artifacts from a current calculation."""
+    case_dir = Path(case_dir)
+    calculation = load_calculation(case_dir)
+    snapshot = _canonical_snapshot(case_dir)
+    if snapshot["fingerprint"] != calculation["canonical_snapshot"]["fingerprint"]:
+        raise CloseError("STALE_SOURCE",
+                         "the canonical bundle changed after calculation; run "
+                         "close calculate again before reporting")
+    review = _load_review(case_dir)
+    report = _build_report_body(case_dir, calculation, review)
+    # Fingerprint the report body before adding the fingerprint itself and the
+    # volatile generation timestamp.
+    fingerprint_body = dict(report)
+    fingerprint_body.pop("generated_at", None)
+    fingerprint_body["replay"] = dict(fingerprint_body.get("replay") or {})
+    fingerprint_body["replay"].pop("output_snapshot_fingerprint", None)
+    report["replay"]["output_snapshot_fingerprint"] = _fingerprint(fingerprint_body)
+
+    report_dir = case_dir / "report"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    _write_text(report_dir / "report.md", _report_markdown(report))
+    _write_json(report_dir / "report.json", report)
+
+    line_fields = [
+        "line_ref", "charge_id", "source_ref", "usage_id", "usage_source_ref",
+        "amount", "currency", "quantity", "unit_price", "classification",
+        "included_in_invoice_total",
+        "matched_amount", "adjustment_amount", "residual_amount",
+        "source_difference", "difference", "expected_amount",
+        "rule_difference", "recalculation_status",
+        "invoice_reconciled", "vendor_reconciled", "buyer_verified",
+        "rule_id", "rule_version", "adjustment_type", "adjustment_state",
+        "state", "basis", "finding_ids",
+    ]
+    line_rows = []
+    for row in report["line_reconciliation"]:
+        copy = dict(row)
+        copy["finding_ids"] = "|".join(row.get("finding_ids") or [])
+        line_rows.append(copy)
+    _write_csv(report_dir / "line-reconciliation.csv", line_fields, line_rows,
+               money_fields=("amount", "matched_amount", "adjustment_amount",
+                             "residual_amount", "source_difference",
+                             "difference", "expected_amount", "rule_difference"))
+
+    queue_fields = [
+        "id", "kind", "line_ref", "amount", "currency", "state", "owner",
+        "candidate_causes", "confirmed_cause", "next_evidence", "detail",
+        "finding_id",
+    ]
+    queue_rows = []
+    for item in report["open_items"]:
+        row = dict(item)
+        row["candidate_causes"] = "|".join(item.get("candidate_causes") or [])
+        queue_rows.append(row)
+    _write_csv(report_dir / "review-queue.csv", queue_fields, queue_rows,
+               money_fields=("amount",))
+
+    canonical = _canonical_dir(case_dir)
+    manifest = _read_json(canonical / "manifest.json", "canonical/manifest.json")
+    rule_map, rule_hash = _read_rule_map(canonical)
+    evidence = _source_evidence_index(manifest, canonical, rule_map,
+                                      report["line_reconciliation"])
+    _write_json(report_dir / "evidence-index.json", evidence)
+
+    artifacts = {}
+    for name in ("report.md", "report.json", "line-reconciliation.csv",
+                 "review-queue.csv", "evidence-index.json"):
+        path = report_dir / name
+        artifacts[name] = {"sha256": _sha_file(path), "bytes": path.stat().st_size}
+    report_manifest = {
+        "schema": REPORT_MANIFEST_SCHEMA,
+        "job_id": report["job_id"],
+        "revision_id": report["revision_id"],
+        "generated_at": report["generated_at"],
+        "code_version": CODE_VERSION,
+        "algorithm_versions": dict(ALGORITHM_VERSIONS),
+        "inputs": {
+            "canonical_files": calculation["canonical_snapshot"]["files"],
+            "canonical_fingerprint": calculation["canonical_snapshot"]["fingerprint"],
+            "period_job_sha256": report["replay"]["period_job_sha256"],
+            "mapping_confirmed_sha256": report["replay"]["mapping_confirmed_sha256"],
+            "rule_map_sha256": rule_hash,
+        },
+        "rule_versions": report["replay"]["rule_versions"],
+        "calculation_fingerprint": report["replay"]["calculation_fingerprint"],
+        "output_snapshot_fingerprint": report["replay"]["output_snapshot_fingerprint"],
+        "artifacts": artifacts,
+    }
+    _write_json(report_dir / "manifest.json", report_manifest)
+    return report
+
+
+def record_review(case_dir: Path, *, reviewer: str, approved_scope: str = "",
+                  reservations: List[str] = None, next_review: str = "") -> Dict[str, Any]:
+    """Record a named human review; never promote unresolved items to closed."""
+    case_dir = Path(case_dir)
+    reviewer = _text(reviewer)
+    if not reviewer:
+        raise CloseError("INPUT_REQUIRED",
+                         "a review needs a named reviewer; no signature is inferred")
+    report_path = case_dir / "report" / "report.json"
+    report = _read_json(report_path, "report.json")
+    if _text(next_review):
+        try:
+            date.fromisoformat(next_review)
+        except ValueError as exc:
+            raise CloseError("INPUT_REQUIRED",
+                             "next_review must be an ISO date (YYYY-MM-DD)") from exc
+    unresolved = [item for item in report.get("open_items", [])
+                  if item.get("state") not in ("resolved", "closed",
+                                               "not_applicable")]
+    review = {
+        "schema": REVIEW_SCHEMA,
+        "state": "reviewed",
+        "reviewer": reviewer,
+        "reviewed_at": _now_iso(),
+        "attestation": "attested_by_declaration",
+        "approved_scope": _text(approved_scope),
+        "reservations": [item for item in (reservations or []) if _text(item)],
+        "next_review": _text(next_review) or None,
+        "signoff": {"state": "not_signed", "by": None, "at": None},
+        "payment_authorization": False,
+        "unresolved_items": [{
+            "id": item["id"], "kind": item["kind"],
+            "line_ref": item["line_ref"], "state": item["state"],
+            "amount": item.get("amount"), "currency": item.get("currency"),
+            "owner": item.get("owner"), "next_evidence": item.get("next_evidence"),
+            "detail": item["detail"],
+        } for item in unresolved],
+        "boundary": ("Review records a named declaration, not cryptographic "
+                     "identity proof; it does not close unresolved items, sign off "
+                     "the period, or authorize payment."),
+    }
+    _write_json(case_dir / "review.json", review)
+    try:
+        build_report(case_dir)
+    except Exception:
+        # A review must not survive as a signature over a report that could
+        # not be rebuilt; keep the retry path open.
+        (case_dir / "review.json").unlink()
+        raise
+    return review

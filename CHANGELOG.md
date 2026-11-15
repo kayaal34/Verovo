@@ -12,11 +12,16 @@ canonical bundle Period Intake consumes. Original files are never modified,
 re-ingest is idempotent and keeps the original SHA-256, and OCR/invoice drafts
 never enter the ledger.
 
+V-03 (buyer-signable month-end report): `close calculate` runs the existing
+canonical chain, `close report` emits six replayable report objects, and
+`close review` records a named reviewer without closing unresolved items,
+signing off the period or authorizing payment.
+
 ### Added
 
-- **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `status` (and
-  `show` as the same read-only projection), plus loud V-03 (`calculate`,
-  `report`) and V-04 (`revise`, `signoff`) stubs that exit 2 instead of faking
+- **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `calculate` /
+  `report` / `review` / `status` (and `show` as the same read-only projection),
+  plus loud V-04 (`revise`, `signoff`) stubs that exit 2 instead of faking
   results.
 - **`verovo.period-job/1` import**: half-open `[from, to)`, one
   vendor/account/currency, IANA timezone, UTF-8/BOM handling, per-file SHA-256,
@@ -31,6 +36,29 @@ never enter the ledger.
   and `valid_from`/`valid_to`; an expired table refuses canonical generation,
   and reusable rules are proposed only when they cover the current period and
   always carry `requires_re_review_next_period`.
+- **Six report objects (V-03)**: `report.md`, `report.json`,
+  `line-reconciliation.csv`, `review-queue.csv`, `evidence-index.json` and
+  `manifest.json` are generated from the current `calculation.json`; the
+  manifest records input hashes, rule versions, code/algorithm versions and a
+  stable output-snapshot fingerprint for V23 replay.
+- **Mutually exclusive line amounts**: each invoice line is exactly one of
+  matched posting, explained adjustment, excluded pending adjustment or
+  residual; `invoice_total = matched_postings + known_adjustments +
+  open_difference` holds per line, and multiple findings on one line never add
+  a second amount. Missing invoice lines stay `null`, never `0`.
+- **Independent axes vs verdicts**: the report keeps
+  `finance/verification/delivery/economics_status` separate from
+  `Rule Repriced` / `Invoice Reconciled` / `Vendor Reconciled` /
+  `Buyer Verified` / `Delivery Accepted` PASS/FAIL/UNKNOWN/UNPROVABLE
+  verdicts. A complete finance axis still carries the explicit “not a payment
+  authorization” disclaimer.
+- **Credit/tax/refund discipline**: applied tax/credit/discount lines enter
+  known adjustments; issued/unapplied credits and refunds are open exposure;
+  negative credit, positive tax and unapplied refunds never become realized
+  savings.
+- **Named-reviewer gate**: `close review --by ...` records reviewer, time,
+  scope, reservations and next review; missing reviewer is
+  `INPUT_REQUIRED`, and unresolved items are never promoted to closed.
 
 ### Fixed
 
@@ -62,9 +90,10 @@ never enter the ledger.
 
 ### Verification
 
-- Buyer-ledger: **147 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 30 V-02
-  acceptance tests covering AC V07–V15, BuyerCloseCase and the CLI; the V-02
-  tests were committed red first).
+- Buyer-ledger: **158 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 30 V-02
+  acceptance tests covering AC V07–V15, BuyerCloseCase and the CLI + 11 V-03
+  acceptance tests covering AC V16–V23, the review gate and missing-amount
+  discipline; V-02 and V-03 tests were committed red first).
 - Healthcheck: **593 tests pass**.
 - Repository root: **59 tests pass**.
 - Python 3.9; synthetic fixtures only; no network calls and no real billing

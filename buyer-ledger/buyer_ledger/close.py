@@ -63,9 +63,9 @@ INVOICE_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".txt"}
 TABLE_SUFFIXES = {".csv", ".tsv", ".jsonl"}
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
 
-# Commands that exist only as loud stubs; V-02 must not fake them.
-LATER_TICKET_COMMANDS = {"calculate": "V-03", "report": "V-03",
-                         "revise": "V-04", "signoff": "V-04"}
+# Commands that exist only as loud stubs; V-03 owns calculate/report, V-04
+# owns revisions and signoff.
+LATER_TICKET_COMMANDS = {"revise": "V-04", "signoff": "V-04"}
 
 # role -> canonical Period Intake description. ``required`` columns are the
 # minimum a reviewer must see mapped (or explicitly approve as a gap); the
@@ -77,7 +77,8 @@ ROLES = {
               "required": ("charge_id", "amount", "currency"),
               "optional": ("quantity", "unit_price", "rate_rule", "task_id",
                            "allocation_rule", "tax", "description", "date",
-                           "account_ref", "vendor"), "document": False},
+                           "account_ref", "vendor", "adjustment_type",
+                           "adjustment_state"), "document": False},
     "usage": {"target": "usage", "format": "usage-jsonl", "required": ("usage_id",),
               "optional": ("run_id", "charge_id", "cost", "currency", "quantity",
                            "unit", "rate_rule", "task_id", "financialized",
@@ -155,6 +156,10 @@ _FIELD_SYNONYMS = {
     "vendor": ("provider", "supplier", "vendor"),
     "source_ref": ("source ref",),
     "tax": ("tax amount", "tax", "vat"),
+    "adjustment_type": ("adjustment type", "adjustment kind", "adjustment",
+                        "credit type", "refund type"),
+    "adjustment_state": ("adjustment state", "adjustment status", "credit state",
+                         "application state", "applied state"),
     "description": ("description", "item", "detail", "service", "memo"),
     "outcome_id": ("outcome id",),
 }
@@ -420,8 +425,16 @@ def _split_jsonl(text: str, name: str) -> Tuple[List[str], List[Dict[str, Any]]]
     return keys, rows
 
 
-def _parse_table(path: Path) -> Tuple[List[str], List[Dict[str, Any]], str]:
+def _parse_table(path: Path,
+                 allow_empty: bool = False) -> Tuple[List[str], List[Dict[str, Any]], str]:
     suffix = path.suffix.lower()
+    if allow_empty and not path.read_bytes().strip():
+        # An outcomes source may be empty: it means "no outcomes rows", which
+        # is a partial axis, not a malformed ledger file.  Keep a contract
+        # header so the canonical bundle stays readable.
+        columns = list(ROLES["outcomes"]["required"]) + list(
+            ROLES["outcomes"]["optional"])
+        return columns, [], "csv"
     text = _read_source(path)
     if suffix == ".jsonl":
         columns, rows = _split_jsonl(text, path.name)
@@ -638,7 +651,7 @@ def ingest(case_dir: Path, bundle: Path = None) -> Dict[str, Any]:
             raise CloseError("UNSUPPORTED_SCOPE",
                              "%s has unsupported table format %r (use csv/tsv/jsonl)"
                              % (relative, path.suffix))
-        columns, rows, fmt = _parse_table(path)
+        columns, rows, fmt = _parse_table(path, allow_empty=(role == "outcomes"))
         record["format"] = fmt
         record["row_count"] = len(rows)
         proposal = _propose_columns(role, columns)
@@ -1028,16 +1041,20 @@ def confirm_mapping(case_dir: Path, *, reviewer: str,
 def _canonical_table(table: Dict[str, Any]) -> Tuple[List[str], List[Dict[str, Any]]]:
     """Apply the confirmed column mapping; unmapped columns pass through.
 
-    A rename that would collide with an original column (or its normalized
-    form) is skipped — the original column stays authoritative and the
-    conflict is already on record in the mapping draft.
+    A rename that would collide with a *different* original column is skipped —
+    the original column stays authoritative and the conflict is already on
+    record in the mapping draft.  Renaming the mapped column itself (for example
+    ``Adjustment Type`` -> ``adjustment_type``) is safe even when the normalized
+    names match.
     """
     mapping = table["proposal"]["mapping"]
     columns = table["columns"]
     normalized_columns = {_norm(column) for column in columns}
     rename: Dict[str, str] = {}
     for field, column in mapping.items():
-        if field in columns or _norm(field) in normalized_columns:
+        if field == column:
+            continue
+        if _norm(field) in normalized_columns and _norm(column) != _norm(field):
             continue
         rename[column] = field
     header = [rename.get(column, column) for column in columns]
@@ -1078,7 +1095,7 @@ def generate_canonical(case_dir: Path,
             continue
         relative = Path(entry["path"]).as_posix()
         path = _resolve_inside(bundle_root, relative, "source %s" % role)
-        columns, rows, fmt = _parse_table(path)
+        columns, rows, fmt = _parse_table(path, allow_empty=(role == "outcomes"))
         tables.setdefault(role, []).append({
             "entry": entry, "path": path, "relative": relative,
             "columns": columns, "rows": rows,
@@ -1193,11 +1210,20 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
     draft_path = case_dir / "intake" / "mapping-draft.json"
     confirmed_path = case_dir / "intake" / "mapping-confirmed.json"
     canonical_manifest = case_dir / "canonical" / "manifest.json"
+    calculation_path = case_dir / "calculation.json"
+    report_path = case_dir / "report" / "report.json"
+    review_path = case_dir / "review.json"
     has_scan = scan_path.is_file()
     draft = json.loads(draft_path.read_text(encoding="utf-8")) if draft_path.is_file() else None
     confirmation = (json.loads(confirmed_path.read_text(encoding="utf-8"))
                     if confirmed_path.is_file() else None)
     scan = json.loads(scan_path.read_text(encoding="utf-8")) if has_scan else None
+    calculation = (json.loads(calculation_path.read_text(encoding="utf-8"))
+                   if calculation_path.is_file() else None)
+    report = (json.loads(report_path.read_text(encoding="utf-8"))
+              if report_path.is_file() else None)
+    review = (json.loads(review_path.read_text(encoding="utf-8"))
+              if review_path.is_file() else None)
     confirmed = confirmation is not None
 
     snapshot_refs: List[Dict[str, Any]] = []
@@ -1255,6 +1281,20 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
         if vendor_ledger_count >= 2 else
         {"status": "UNPROVABLE",
          "reason": "two vendor-controlled exports are required for Vendor Reconciled"})
+    if report is not None:
+        # The published report owns the canonical verdicts now; keep the
+        # import-stage source check from looking like it is still pending.
+        for name in ("Invoice Reconciled", "Vendor Reconciled", "Buyer Verified"):
+            verdict = (report.get("verdicts") or {}).get(name)
+            if not verdict:
+                continue
+            rows = verdict.get("rows") or []
+            source_check[name] = {
+                "status": verdict.get("status") or "UNPROVABLE",
+                "reason": (rows[0].get("reason") if rows else
+                           "; ".join(verdict.get("limitations") or []) or
+                           "see report verdict"),
+            }
 
     axes: Dict[str, str] = {}
     axes["finance"] = "pending_calculation" if confirmed and distinct_ledger else "blocked"
@@ -1267,6 +1307,19 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
             axes[axis] = "pending_calculation"
         else:
             axes[axis] = "blocked"
+    completion_semantics = {
+        "finance": ("blocked until a human confirms the mapping and a ledger pair "
+                    "exists; pending_calculation means ready for the V-03 canonical "
+                    "run"),
+    }
+    if report is not None:
+        # A published report is the completed canonical run: show its four
+        # independent axes instead of the pre-calculation placeholders.
+        for axis in ("finance", "verification", "delivery", "economics"):
+            axes[axis] = _text(report.get(axis + "_status")) or axes[axis]
+            meaning = (report.get("axes_semantics") or {}).get(axis + "_status")
+            if meaning:
+                completion_semantics[axis] = meaning
 
     missing_inputs: List[Dict[str, str]] = []
     if distinct_ledger == 0:
@@ -1314,6 +1367,12 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
         review_queue.append({"ref": document["document_ref"],
                              "kind": "invoice_document",
                              "detail": document.get("detail")})
+    if report is not None:
+        for item in report.get("open_items", []):
+            review_queue.append({
+                "ref": item.get("id"), "kind": item.get("kind"),
+                "detail": item.get("detail"), "state": item.get("state"),
+                "owner": item.get("owner")})
 
     # Cross-period reuse: only rules whose stated validity covers this period
     # may be proposed at all, and every one of them still requires fresh review
@@ -1345,7 +1404,27 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
                         "valid_from": valid_from, "valid_to": valid_to,
                         "requires_re_review_next_period": True})
 
-    if confirmed and distinct_ledger:
+    if report is not None:
+        if review is not None:
+            task_state, blocked_code = "delivered", None
+            next_actor = "human_reviewer"
+            next_required = {
+                "action": "sign off the period or open a revision (V-04)",
+                "ticket": "V-04"}
+        else:
+            task_state, blocked_code = "needs_review", "REVIEW_REQUIRED"
+            next_actor = "human_reviewer"
+            next_required = {
+                "action": "review the month-end report and record a named reviewer",
+                "report": "close review %s --by <reviewer> --scope <scope>"
+                          % case_dir,
+                "ticket": "V-03"}
+    elif calculation is not None:
+        task_state, blocked_code = "ready", None
+        next_actor = "verovo_cli"
+        next_required = {"action": "build the month-end report (close report)",
+                         "ticket": "V-03"}
+    elif confirmed and distinct_ledger:
         task_state, blocked_code = "ready", None
         next_actor = "verovo_cli"
         next_required = {"action": "run the canonical calculation (close calculate)",
@@ -1388,7 +1467,8 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
                          "ticket": "V-02"}
 
     state_files = [case_dir / "period-job.json", scan_path, draft_path,
-                   confirmed_path, canonical_manifest]
+                   confirmed_path, canonical_manifest, calculation_path,
+                   report_path, review_path]
     return {
         "schema": BUYER_CLOSE_CASE_SCHEMA,
         "read_only": True,
@@ -1418,19 +1498,17 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
             "difference_items": [],
             "explanation_basis_refs": [],
             "completion_axes": axes,
-            "completion_axes_semantics": {
-                "finance": "blocked until a human confirms the mapping and a ledger "
-                           "pair exists; pending_calculation means ready for the "
-                           "V-03 canonical run",
-            },
+            "completion_axes_semantics": completion_semantics,
             "source_check": source_check,
         },
         "review_flow": {
             "review_queue": review_queue,
-            "assigned_reviewer": (confirmation or {}).get("confirmed_by"),
-            "approved_scope": (confirmation or {}).get("sources"),
+            "assigned_reviewer": ((review or {}).get("reviewer")
+                                  or (confirmation or {}).get("confirmed_by")),
+            "approved_scope": ((review or {}).get("approved_scope")
+                               or (confirmation or {}).get("sources")),
             "outstanding_requests": missing_inputs,
-            "signoff_revision": None,
+            "signoff_revision": ((review or {}).get("signoff") or {}).get("state"),
         },
         "history": {
             "previous_period_ref": None,
@@ -1456,9 +1534,10 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
 
 
 def stub_command(command: str) -> None:
-    """V-03/V-04 commands refuse loudly instead of being half-implemented."""
+    """V-04 commands refuse loudly instead of being half-implemented."""
     ticket = LATER_TICKET_COMMANDS[command]
     raise CloseError(
         "UNSUPPORTED_SCOPE",
-        "'close %s' is implemented in ticket %s; V-02 delivers init/ingest/mapping/"
-        "status only and refuses to fake the rest" % (command, ticket))
+        "'close %s' is implemented in ticket %s; V-03 delivers init/ingest/"
+        "mapping/calculate/report/review/status and refuses to fake revisions "
+        "or signoff" % (command, ticket))

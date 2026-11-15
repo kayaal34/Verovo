@@ -482,6 +482,49 @@ def cmd_close_status(args):
                      ensure_ascii=False, indent=2))
 
 
+def cmd_close_calculate(args):
+    from . import close_report
+    calculation = close_report.calculate(args.case)
+    if args.json:
+        with open(args.json, "w", encoding="utf-8") as handle:
+            json.dump(calculation, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+    print("calculation: %s/calculation.json" % args.case)
+    print("schema: %s" % calculation["schema"])
+    print("canonical fingerprint: %s" % calculation["canonical_snapshot"]["fingerprint"])
+    print("axes: %s" % json.dumps(calculation["statuses"], ensure_ascii=False))
+    print("calculation fingerprint: %s" % calculation["calculation_fingerprint"])
+
+
+def cmd_close_report(args):
+    from . import close_report
+    report = close_report.build_report(args.case)
+    print("report dir: %s/report" % args.case)
+    for name in ("report.md", "report.json", "line-reconciliation.csv",
+                 "review-queue.csv", "evidence-index.json", "manifest.json"):
+        print("  %s" % name)
+    print("finance=%s verification=%s delivery=%s economics=%s"
+          % (report["finance_status"], report["verification_status"],
+             report["delivery_status"], report["economics_status"]))
+    print("open difference: %s %s" % (
+        report["amounts"]["open_difference"] or "—",
+        report["amounts"]["currency"]))
+    print("review: %s" % report["review"]["state"])
+
+
+def cmd_close_review(args):
+    from . import close_report
+    review = close_report.record_review(
+        args.case, reviewer=args.by, approved_scope=args.scope,
+        reservations=args.reservation, next_review=args.next_review)
+    print("reviewed by %s (%s)" % (review["reviewer"], review["attestation"]))
+    print("scope: %s" % (review["approved_scope"] or "—"))
+    print("signoff state: %s" % review["signoff"]["state"])
+    print("unresolved items: %d (never closed by review)"
+          % len(review["unresolved_items"]))
+    print("payment authorization: %s" % review["payment_authorization"])
+
+
 def cmd_close_stub(args):
     close_mod.stub_command(args.close_command)
 
@@ -639,9 +682,30 @@ def build_parser():
         sp.add_argument("case")
         sp.set_defaults(func=cmd_close_status)
 
-    for name in ("calculate", "report", "revise", "signoff"):
+    sp = close_sub.add_parser("calculate", help="对 canonical bundle 运行既有重算链（V-03）")
+    sp.add_argument("case")
+    sp.add_argument("--json", default="", help="另存一份 calculation JSON")
+    sp.set_defaults(func=cmd_close_calculate)
+
+    sp = close_sub.add_parser("report", help="生成六份可签核月结报告（V-03）")
+    sp.add_argument("case")
+    sp.add_argument("--format", choices=["all", "md", "json"], default="all",
+                    help="输出投影提示；V-03 始终写全六份报告对象")
+    sp.set_defaults(func=cmd_close_report)
+
+    sp = close_sub.add_parser("review", help="记录署名复核；不关闭未决项（V-03/V-04 门禁）")
+    sp.add_argument("case")
+    sp.add_argument("--by", default="",
+                    help="复核人（自报声明，非强身份；缺失即 INPUT_REQUIRED）")
+    sp.add_argument("--scope", default="", help="批准/复核范围")
+    sp.add_argument("--reservation", action="append", default=[],
+                    help="保留意见，可重复")
+    sp.add_argument("--next-review", default="", help="下次复核日期 YYYY-MM-DD")
+    sp.set_defaults(func=cmd_close_review)
+
+    for name in ("revise", "signoff"):
         ticket = close_mod.LATER_TICKET_COMMANDS[name]
-        sp = close_sub.add_parser(name, help="%s 中实现（V-02 只拒绝，不伪造）" % ticket)
+        sp = close_sub.add_parser(name, help="%s 中实现（V-03 只拒绝，不伪造）" % ticket)
         sp.add_argument("case")
         if name == "revise":
             sp.add_argument("--source", required=True)
