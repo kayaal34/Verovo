@@ -1,5 +1,152 @@
 # Changelog
 
+## Unreleased
+
+V-01 (differential cause qualification): an amount difference and its cause
+are now separate claims in the ai-invoice-reconciliation example; no cause is
+inferred from a non-zero difference alone.
+
+V-02 (period import and human field mapping): one local billing period is
+scanned and proposed as a mapping draft; only a human confirmation produces the
+canonical bundle Period Intake consumes. Original files are never modified,
+re-ingest is idempotent and keeps the original SHA-256, and OCR/invoice drafts
+never enter the ledger.
+
+V-03 (buyer-signable month-end report): `close calculate` runs the existing
+canonical chain, `close report` emits six replayable report objects, and
+`close review` records a named reviewer without closing unresolved items,
+signing off the period or authorizing payment.
+
+V-04 (versioned close and later adjustments): the root period is snapshotted as
+r1; `close revise` appends an independently recalculated r2/r3 with a
+PeriodRevision record and a delta, and `close signoff` binds a named decision
+to one revision's source/rule fingerprints without rewriting older reports or
+authorizing payment.
+
+Adversarial audit follow-up: half-open rows are now excluded from totals,
+duplicate bill rows cannot become a second report line, unknown currency and
+missing unit prices fail closed, signed roots cannot be rebuilt in place, and
+report replay is bound to period-job/mapping/calculation hashes.
+
+### Added
+
+- **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `calculate` /
+  `report` / `review` / `revise` / `signoff` / `status` (and `show` as the same
+  read-only projection); no later-ticket stub remains.
+- **`verovo.period-job/1` import**: half-open `[from, to)`, one
+  vendor/account/currency, IANA timezone, UTF-8/BOM handling, per-file SHA-256,
+  path/symlink containment at ingest, duplicate-id diagnostics, four coverage
+  categories, and a `BuyerCloseCase` read-only projection with C-01
+  `task_state` / `next_required_action` / `blocked_reason_code`.
+- **Human confirmation gate**: mapping draft -> `mapping-confirmed.json`
+  (`attested_by_declaration`) -> `canonical/`; vendor-only exports keep
+  `Buyer Verified = UNPROVABLE`; invoice/OCR documents stay `unreviewed` /
+  `unbooked` and live under `manifest.documents`, never `manifest.sources`.
+- **Price-table validity**: pricing rules must state currency, unit, version
+  and `valid_from`/`valid_to`; an expired table refuses canonical generation,
+  and reusable rules are proposed only when they cover the current period and
+  always carry `requires_re_review_next_period`.
+- **Six report objects (V-03)**: `report.md`, `report.json`,
+  `line-reconciliation.csv`, `review-queue.csv`, `evidence-index.json` and
+  `manifest.json` are generated from the current `calculation.json`; the
+  manifest records input hashes, rule versions, code/algorithm versions and a
+  stable output-snapshot fingerprint for V23 replay.
+- **Mutually exclusive line amounts**: each invoice line is exactly one of
+  matched posting, explained adjustment, excluded pending adjustment or
+  residual; `invoice_total = matched_postings + known_adjustments +
+  open_difference` holds per line, and multiple findings on one line never add
+  a second amount. Missing invoice lines stay `null`, never `0`.
+- **Independent axes vs verdicts**: the report keeps
+  `finance/verification/delivery/economics_status` separate from
+  `Rule Repriced` / `Invoice Reconciled` / `Vendor Reconciled` /
+  `Buyer Verified` / `Delivery Accepted` PASS/FAIL/UNKNOWN/UNPROVABLE
+  verdicts. A complete finance axis still carries the explicit “not a payment
+  authorization” disclaimer.
+- **Credit/tax/refund discipline**: applied tax/credit/discount lines enter
+  known adjustments; issued/unapplied credits and refunds are open exposure;
+  negative credit, positive tax and unapplied refunds never become realized
+  savings.
+- **Named-reviewer gate**: `close review --by ...` records reviewer, time,
+  scope, reservations and next review; missing reviewer is
+  `INPUT_REQUIRED`, and unresolved items are never promoted to closed.
+- **Append-only PeriodRevision (V-04)**: the first revision snapshots the root
+  to `revisions/r1` and every later version gets its own `rN/` directory with
+  `period_job_id`, `revision_id`, `parent_revision_id`,
+  `input_snapshot_hash`, `rule_map_hash`, `source_added/removed/changed`,
+  `reviewer`, `closed_at` and `status`. Same input is idempotent; root
+  reports/canonical are refused for in-place rebuild once a revision exists.
+- **Three-way revision delta**: `delta.json` separates amount/cause/axis
+  changes, newly available evidence, and applied versus merely issued credit.
+  Issued credit stays open exposure with zero realized savings; applied credit
+  reduces the amount due and is still not reported as savings.
+- **Revision signoff**: `close signoff --by ...` records the case/revision,
+  scope hash, source hashes, rule-map hash, reviewer, decision time,
+  reservations and unresolved items; a new revision never inherits the old
+  signoff, missing reviewer is `INPUT_REQUIRED`, and the result is explicitly
+  not payment authorization.
+
+### Fixed
+
+- **buyer-ledger example**: `reconcile.py` no longer stamps the unexplained
+  residual with a fixed `price_tier_mismatch` reason code or the cost-export
+  gap with `cache_read_rounded_to_zero`. Differences are emitted as
+  `observed_difference` facts with a layered qualification
+  (`unresolved` default / `confirmed` / `not_a_vendor_error`); candidate
+  explanations carry `basis_refs` and `confidence_kind=heuristic`. The cache
+  gap stays multi-candidate (rounding / time window / async revision).
+- **Confirmed explanations need evidence**: `confirmed` requires declared
+  evidence; in the synthetic demo this is `make_demo.py`'s injection
+  declaration in `ground-truth.json`, explicitly labeled
+  `synthetic_ground_truth` and never presented as real independent proof.
+- **Identity is not proof**: the residual identity
+  `recalc + seats + credits + tax + residual = invoice_total` holds by
+  definition and is kept only as a sanity check. Correctness evidence comes
+  from new row-level cross-checks (`line-checks.csv`: usage×prices vs cost
+  export per row, invoice usage line vs recalculation), which catch tampered
+  rows the identity cannot.
+- **Coverage caliber**: net coverage above 100% (or a non-positive
+  denominator) is reported as `not_comparable` with gross/net shown
+  separately; negative residuals keep their direction (`invoice_lower`)
+  instead of being presented as normal residuals.
+- **Period intake task links**: a bill-declared `task_id` is registered even
+  when the bill is matched to a financialized usage row, and the matched usage
+  run is linked only when the bills name exactly one task. Ambiguous run links
+  stay unallocated instead of being guessed.
+- **Half-open boundary actually closes the period**: rows at `to` or before
+  `from` are copied into `period_outliers` but no longer written to canonical
+  or `invoice_total`; they appear as `period_outlier` open items/queue entries.
+- **Duplicate representations are not a second line**: `period_intake` now
+  appends a bill row to `reconciliation_rows` only after the duplicate check,
+  so a repeated `charge_id` is flagged but cannot produce a second V-03 line or
+  a self-consistent double-counted identity.
+- **Unknown currency fails closed**: lines without a period currency are
+  `excluded_currency_unknown`; `invoice_total`/`open_difference` become `null`
+  and `invoice_total_status=unknown`, never an assumed USD total.
+- **Signed roots are immutable in place**: `close review`, `close calculate`
+  and `close report` refuse when `signoff.json` exists (`REVIEW_REQUIRED`);
+  report/signoff bytes and fingerprints stay unchanged until a new revision.
+- **Replay binds the actual inputs**: `calculation.json` stores period-job,
+  mapping-confirmed and rule-map hashes plus a calculation fingerprint;
+  `build_report` rejects any mismatch or edited calculation as
+  `STALE_SOURCE`. Missing unit prices produce `rule_repricing_status=partial`
+  and a `null` subtotal instead of `0`.
+- **Cross-platform path rejection**: Windows drive/UNC/backslash traversal
+  paths are denied on POSIX too, alongside existing `..` and symlink checks.
+
+### Verification
+
+- Buyer-ledger: **173 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 31 V-02
+  acceptance tests covering AC V07–V15, BuyerCloseCase, half-open filtering,
+  duplicate booking and cross-platform paths + 16 V-03 acceptance tests
+  covering AC V16–V23, missing currency/amounts, rule-subtotal partiality and
+  replay input hashes + 9 V-04 acceptance tests covering AC V24–V29,
+  PeriodRevision, append-only signoff and the revise/signoff CLI; the relevant
+  V-02/V-03/V-04 tests were committed red first).
+- Healthcheck: **593 tests pass**.
+- Repository root: **59 tests pass**.
+- Python 3.9; synthetic fixtures only; no network calls and no real billing
+  data.
+
 ## v0.13.0 - 2026-11-04
 
 Independent completion axes and evidence provenance: finance can finish without

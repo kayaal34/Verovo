@@ -2,7 +2,9 @@
 
 > **Synthetic demo, not a client.** One vendor (anthropic), one account
 > (acme-prod), one period (2026-10), USD. The numbers are
-> generated to exercise the reconciliation; they are not a real bill.
+> generated to exercise the reconciliation; they are not a real bill. Any
+> confirmed cause below rests on the generator's declared synthetic injection
+> (synthetic_ground_truth), never on real independent evidence.
 
 ## Page 1 · Totals
 
@@ -12,48 +14,68 @@
 | Recalculated from usage (four input buckets + output) | 38,462.06 |
 | Cost export total | 31,207.33 |
 | Explained (recalc + seats + credits + tax) | 26,419.02 |
-| Unexplained residual | 144.23 |
+| Unexplained residual (invoice_higher) | 144.23 |
 | Cache-read gap (cost export vs recalc) | 7,254.73 |
-| Coverage (explained / invoice) | 99.46% |
+| Coverage (net, incl. credits) | 99.46% |
+| Coverage (gross, excl. credits) | 99.69% |
 
 **Read this first:** the cost export is 7,254.73 lower than the
-recalculated usage because cache reads are rounded to $0.00. The invoice is
-lower than the recalculation because it carries 20,000.00 of credits;
-it also adds 6,000.00 of seats and 1,956.96 of tax that never appear in
-the usage API. After those known lines, 144.23 is still unexplained
-and needs an owner.
+recalculated usage — that is an observed difference with 3
+candidate explanations (rounding/omission, time window, async revision);
+none is confirmed. The invoice carries 20,000.00 of credits,
+6,000.00 of seats and 1,956.96 of tax that never appear in the usage
+API (classified adjustments, not open differences). After those known lines,
+144.23 carries qualification `confirmed`, confirmed only by the synthetic declaration in ground-truth.json — never by real independent evidence.
 
-## Page 2 · Reconciliation
+All 90 rows agree between usage×prices and the cost export, and the invoice usage line equals the recalculation (38462.06).
 
-| Line | Source | USD | Reason code |
-|---|---|---:|---|
-| usage_charges | recalc | 38462.06 | `base` |
-| enterprise_seats | invoice | 6000.00 | `seat_not_in_cost_api` |
-| credits | invoice | -20000.00 | `credit_only_on_invoice` |
-| tax | invoice | 1956.96 | `tax_only_on_invoice` |
-| unexplained_residual | derived | 144.23 | `price_tier_mismatch` |
-| cache_read_rounding | derived | 7254.73 | `cache_read_rounded_to_zero` |
+## Page 2 · Reconciliation (facts and qualification, not fixed reason codes)
 
-**Identity:** 38,462.06 + 6,000.00 + (-20,000.00) +
-1,956.96 + 144.23 = 26,563.25.
+| Line | Source | USD | Kind | Qualification | Hypotheses |
+|---|---|---:|---|---|---|
+| usage_charges | recalc | 38462.06 | `component` | `matched_by_line_checks` | - |
+| enterprise_seats | invoice | 6000.00 | `invoice_only_adjustment` | `not_a_vendor_error` | - |
+| credits | invoice | -20000.00 | `invoice_only_adjustment` | `not_a_vendor_error` | - |
+| tax | invoice | 1956.96 | `invoice_only_adjustment` | `not_a_vendor_error` | - |
+| unexplained_residual | derived | 144.23 | `observed_difference` | `confirmed` | price_tier_mismatch(confirmed); commitment_true_up(heuristic); usage_window_revision(heuristic) |
+| cache_read_gap | derived | 7254.73 | `observed_difference` | `unresolved` | cache_read_rounded_to_zero(heuristic); time_window_revision(heuristic); async_export_revision(heuristic) |
 
-## Page 3 · Top 3 and next actions
+**Identity (sanity only):** 38,462.06 + 6,000.00 + (-20,000.00) +
+1,956.96 + 144.23 = 26,563.25. This holds by
+definition of the residual and is not a proof of correctness; the row-level
+checks in `line-checks.csv` are the independent cross-check.
 
-| # | What | USD | Who should act |
-|---|---|---:|---|
-| 1 | cache_read_rounding · cost export drops cache reads below one cent | 7254.73 | FinOps/engineering |
-| 2 | unexplained_residual · residual after known lines; owner unassigned | 144.23 | FinOps/engineering |
-| 3 | enterprise_seats · seat-based enterprise spend; not in usage/cost API | 6000.00 | finance |
+## Page 3 · Differences, evidence and next actions
+
+### unexplained_residual — 144.23 (invoice_higher)
+
+- qualification: `confirmed` · state: **closed**
+- candidate/confirmed: `price_tier_mismatch` (confirmed · synthetic_ground_truth) — basis: ground-truth.json#injections[unexplained_residual]
+- candidate/confirmed: `commitment_true_up` (heuristic) — basis: reconciliation.json#totals.unexplained_residual
+- candidate/confirmed: `usage_window_revision` (heuristic) — basis: reconciliation.json#totals.unexplained_residual
+- missing evidence: approved contract price table (currency, validity, unit, cache tier)
+- missing evidence: vendor confirmation for the residual line
+
+### cache_gap — 7,254.73 (cost_export_lower)
+
+- qualification: `unresolved` · state: **open (multi-candidate, unconfirmed)**
+- candidate/confirmed: `cache_read_rounded_to_zero` (heuristic) — basis: line-checks.csv (90/90 rows: gap equals the row's cache-read amount)
+- candidate/confirmed: `time_window_revision` (heuristic) — basis: period.json#period
+- candidate/confirmed: `async_export_revision` (heuristic) — basis: cost.csv (regeneration timestamp unknown)
+- missing evidence: export generation timestamps for usage.csv and cost.csv
+- missing evidence: vendor statement on cache-read rounding policy
 
 **Missing to close the period**
 
-- Contract price table (to confirm the 1h cache-write tier used in the residual).
+- Approved contract price table (to confirm or drop the 1h cache-write tier hypothesis).
+- Export generation timestamps for usage and cost (to test the time-window/async candidates).
 - Key/workspace → team mapping (not needed for this synthetic sample; needed for a real one).
 - Whether the 20,000.00 credit is one-off or recurring.
 
 **What this sample does not do**
 
-- It does not prove the vendor overcharged.
+- It does not prove the vendor overcharged; `supplier_dispute_candidate` is a follow-up state, not a verdict.
+- It does not fix a cause on any difference without independent evidence.
 - It does not compute total AI TCO (tokens are only one part).
 - It does not replace a signed-off close; a human signs.
 

@@ -2,9 +2,15 @@
 """Generate a synthetic one-vendor, one-account, one-period AI bill.
 
 The numbers are synthetic and clearly labeled. They exist to exercise the
-reconciliation logic: four input buckets, cache reads rounded to $0.00 in the
-cost export, seats/credits/tax only on the invoice, and a small unexplained
-residual.
+reconciliation logic: four input buckets, cache reads dropped from the cost
+export, seats/credits/tax only on the invoice, and a small unexplained
+residual injected as a 1h-cache-write tier difference.
+
+V-01: the injected scenario is declared in ground-truth.json so that
+reconcile.py can mark the residual `confirmed` *only* under an explicit
+`synthetic_ground_truth` label. The cache omission is deliberately NOT
+declared as ground truth — the cache gap must stay multi-candidate, because
+in a real reconciliation no generator exists to vouch for it.
 """
 from __future__ import annotations
 
@@ -84,6 +90,31 @@ def main() -> None:
         {"line": "unexplained_residual", "amount": f"{residual:.2f}",
          "note": "price-tier difference on 1h cache write"},
     ]
+    # V-01 合成 ground truth：生成器对注入情景的自证声明。它允许 reconcile.py
+    # 把 residual 标为 confirmed，但必须显式携带 synthetic_ground_truth，
+    # 不得冒充真实独立证据；cache 扣除故意不声明，留给多候选假设。
+    ground_truth = {
+        "schema": "verovo.example-ground-truth/1",
+        "synthetic": True,
+        "note": "Declared injections behind the synthetic bill. This file is "
+                "self-declared by the generator; it is synthetic_ground_truth "
+                "for demo purposes only and is never independent evidence in "
+                "the V-01 sense.",
+        "injections": [
+            {"affects": "unexplained_residual",
+             "hypothesis": "price_tier_mismatch",
+             "how": f"residual = recalc_total x 0.375% charged as if the 1h "
+                    f"cache-write tier were miscalculated ({residual:.2f})",
+             "synthetic_ground_truth": True},
+        ],
+        "not_declared": [
+            {"affects": "cache_gap",
+             "why": "the cache-read omission is deliberately not declared; "
+                    "reconcile.py must keep the cache gap multi-candidate "
+                    "(rounding / time window / async revision) because no "
+                    "independent evidence exists"},
+        ],
+    }
     with (HERE / "usage.csv").open("w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(usage_rows[0]))
         w.writeheader()
@@ -107,7 +138,10 @@ def main() -> None:
         "invoice_total": f"{invoice_total:.2f}",
         "residual": f"{residual:.2f}",
     }, indent=1), encoding="utf-8")
-    print(f"wrote usage/cost/invoice for {len(usage_rows)} rows")
+    (HERE / "ground-truth.json").write_text(
+        json.dumps(ground_truth, indent=1, ensure_ascii=False) + "\n",
+        encoding="utf-8")
+    print(f"wrote usage/cost/invoice/ground-truth for {len(usage_rows)} rows")
     print(f"recalc={recalc_total} cost_export={cost_total} "
           f"cache_gap={cache_gap} invoice={invoice_total} residual={residual}")
 

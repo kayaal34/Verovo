@@ -1,0 +1,19 @@
+{
+ "schema": "verovo.example-ground-truth/1",
+ "synthetic": true,
+ "note": "Declared injections behind the synthetic bill. This file is self-declared by the generator; it is synthetic_ground_truth for demo purposes only and is never independent evidence in the V-01 sense.",
+ "injections": [
+  {
+   "affects": "unexplained_residual",
+   "hypothesis": "price_tier_mismatch",
+   "how": "residual = recalc_total x 0.375% charged as if the 1h cache-write tier were miscalculated (144.23)",
+   "synthetic_ground_truth": true
+  }
+ ],
+ "not_declared": [
+  {
+   "affects": "cache_gap",
+   "why": "the cache-read omission is deliberately not declared; reconcile.py must keep the cache gap multi-candidate (rounding / time window / async revision) because no independent evidence exists"
+  }
+ ]
+}
