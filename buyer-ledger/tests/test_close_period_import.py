@@ -538,11 +538,11 @@ class CloseCliTests(CloseCaseTestBase):
                               .read_text(encoding="utf-8"))
         self.assertEqual("close-2026-10-a", manifest["case_id"])
 
-    def test_stub_commands_name_the_later_ticket(self):
+    def test_v04_stub_commands_name_the_later_ticket(self):
+        # V-03 supersedes the V-02 calculate/report stubs (PRD §6 and V-03
+        # AC); only the V-04 revision/signoff commands stay loud stubs.
         self.full_flow()
         for argv, ticket in (
-            (["close", "calculate", str(self.case)], "V-03"),
-            (["close", "report", str(self.case)], "V-03"),
             (["close", "revise", str(self.case), "--source", "x.csv"], "V-04"),
             (["close", "signoff", str(self.case), "--by", "c"], "V-04"),
         ):
@@ -552,8 +552,7 @@ class CloseCliTests(CloseCaseTestBase):
 
     def test_stub_errors_mention_later_ticket(self):
         from buyer_ledger.close import LATER_TICKET_COMMANDS
-        self.assertEqual({"calculate": "V-03", "report": "V-03",
-                          "revise": "V-04", "signoff": "V-04"},
+        self.assertEqual({"revise": "V-04", "signoff": "V-04"},
                          LATER_TICKET_COMMANDS)
 
 
