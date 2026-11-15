@@ -154,3 +154,32 @@ paper concession 当现金；V-04 更严格地要求 credit 明确 `applied` 到
   正确或多收费结论。
 - recovery/settlement 的 dispute/结算格式不直接套用到 revision；复用的是
   “issued/confirmed 不等于 realized、未应用不计数”的语义纪律。
+
+## V-06 recovery and signoff freshness
+
+Every write that touches more than one revision file goes through a journal at
+`revisions/.journal-<rN>.json`, written and fsynced *before* the first visible
+change. The journal records the revision id, its parent, the input snapshot
+hash and each expected file hash, so recovery can tell "not started" from
+"started and interrupted".
+
+- `revise` builds the whole revision in `revisions/.staging-<rN>/`, then renames
+  it to `revisions/<rN>/`, then commits the index. A crash between the rename and
+  the index commit leaves a journal behind.
+- `signoff` writes `signoff.json`, `revision.json` and `index.json` under the same
+  journal, so the three can never disagree after recovery.
+- `close status`, `close show`, `close report`, `close revise`, `close signoff`
+  call `ensure_recovered()` first: a recoverable journal is completed and
+  reported as `recovered`; an unrecoverable one is reported with the pending and
+  finished steps, and the command refuses to pretend everything is fine.
+- `close recover` is dry-run by default and prints what it would do; `--apply`
+  completes the transaction, `--rollback` returns the case to the previous
+  consistent state and removes orphan directories.
+- An `rN/` directory that exists without an index entry is adopted into the index
+  instead of dead-ending the next `revise`. A corrupted promoted revision or a
+  corrupted journal is reported, never silently dropped.
+- Before signing, the report fingerprints (`calculation_fingerprint`,
+  `output_snapshot_fingerprint`), the canonical snapshot and every source file
+  hash are re-verified. If anything moved, signing fails with `STALE_SOURCE` and
+  names the step to re-run. Signing still does not authorize payment, and open
+  items stay open.

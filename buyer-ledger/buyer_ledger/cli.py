@@ -479,13 +479,69 @@ def cmd_close_mapping(args):
 
 def cmd_close_status(args):
     from . import close_revision
+    recovery = close_revision.ensure_recovered(args.case)
     target = close_revision.resolve_case_dir(args.case, args.revision)
-    print(json.dumps(close_mod.build_case(target),
-                     ensure_ascii=False, indent=2))
+    payload = close_mod.build_case(target)
+    payload["recovery"] = recovery
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+
+
+def cmd_close_recover(args):
+    from . import close_revision
+    result = close_revision.recover(
+        args.case, apply=args.apply, rollback=args.rollback)
+    if args.apply:
+        if result["applied"]:
+            print("applied %d transaction(s): %s"
+                  % (len(result["applied"]),
+                     ", ".join(item.get("revision_id") or "?"
+                               for item in result["applied"])))
+        else:
+            print("nothing to recover; index and revisions are consistent")
+        return
+    if args.rollback:
+        if result["rolled_back"]:
+            print("rolled back %d transaction(s): %s"
+                  % (len(result["rolled_back"]),
+                     ", ".join(item.get("revision_id") or "?"
+                               for item in result["rolled_back"])))
+        else:
+            print("nothing to roll back; index and revisions are consistent")
+        return
+    issues = result["issues"]
+    if not issues:
+        print("nothing to recover; index and revisions are consistent")
+        return
+    print("recovery plan (dry-run): %d transaction(s)" % len(issues))
+    for issue in issues:
+        print("  %s %s: %s" % (issue.get("revision_id") or "?",
+                               issue.get("journal_kind") or issue.get("kind"),
+                               issue.get("state")))
+        for step in issue.get("steps") or []:
+            suffix = ""
+            if step.get("problems"):
+                suffix = " [%s]" % ", ".join(
+                    problem.get("problem", "?")
+                    for problem in step["problems"])
+            print("    %s: %s%s" % (step.get("name"), step.get("state"),
+                                    suffix))
+        if issue.get("message"):
+            print("    %s" % issue["message"])
+    print("apply:    close recover %s --apply" % args.case)
+    print("rollback: close recover %s --rollback" % args.case)
+
+
+def _recover_before_write(args):
+    from . import close_revision
+    recovery = close_revision.ensure_recovered(args.case, strict=True)
+    if recovery["state"] == "recovered":
+        print("recovery: %s" % recovery["message"])
+    return recovery
 
 
 def cmd_close_calculate(args):
     from . import close_report, close_revision
+    _recover_before_write(args)
     if close_revision.list_revisions(args.case):
         raise close_mod.CloseError(
             "REVIEW_REQUIRED",
@@ -506,6 +562,7 @@ def cmd_close_calculate(args):
 
 def cmd_close_report(args):
     from . import close_report, close_revision
+    _recover_before_write(args)
     if close_revision.list_revisions(args.case):
         raise close_mod.CloseError(
             "REVIEW_REQUIRED",
@@ -528,6 +585,7 @@ def cmd_close_report(args):
 
 def cmd_close_review(args):
     from . import close_report, close_revision
+    _recover_before_write(args)
     if close_revision.list_revisions(args.case):
         raise close_mod.CloseError(
             "REVIEW_REQUIRED",
@@ -547,6 +605,7 @@ def cmd_close_review(args):
 
 def cmd_close_revise(args):
     from . import close_revision
+    _recover_before_write(args)
     result = close_revision.revise(
         args.case, bundle=args.bundle or None, source=args.source or None,
         role=args.role, reason=args.reason, reviewer=args.review_by,
@@ -575,6 +634,7 @@ def cmd_close_revise(args):
 
 def cmd_close_signoff(args):
     from . import close_revision
+    _recover_before_write(args)
     record = close_revision.signoff(
         args.case, reviewer=args.by, approved_scope=args.scope,
         reservations=args.reservation, note=args.note,
@@ -782,6 +842,16 @@ def build_parser():
                     help="保留意见，可重复")
     sp.add_argument("--note", default="")
     sp.set_defaults(func=cmd_close_signoff)
+
+    sp = close_sub.add_parser(
+        "recover", help="检查/完成/回滚中断的 revision 或 signoff 事务（V-06）")
+    sp.add_argument("case")
+    group = sp.add_mutually_exclusive_group()
+    group.add_argument("--apply", action="store_true",
+                       help="完成 journal 记录的事务（默认 dry-run）")
+    group.add_argument("--rollback", action="store_true",
+                       help="回滚到事务前的一致状态")
+    sp.set_defaults(func=cmd_close_recover)
     return p
 
 
