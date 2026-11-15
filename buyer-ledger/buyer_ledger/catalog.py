@@ -9,8 +9,15 @@ import os
 import re
 from typing import Dict, Iterable, List
 
-CATALOG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                            "catalog", "tools.json")
+# The catalog ships inside the package so an installed wheel keeps
+# `verovo-close catalog ...` working. A checkout also carries the editable
+# source copy at `<repo>/buyer-ledger/catalog/tools.json`; the packaged copy is
+# byte-identical (tests/test_packaging.py keeps the two from drifting).
+_PACKAGED_CATALOG = os.path.join(os.path.dirname(__file__), "data", "tools.json")
+_CHECKOUT_CATALOG = os.path.join(os.path.dirname(os.path.dirname(__file__)),
+                                 "catalog", "tools.json")
+CATALOG_PATH = (_CHECKOUT_CATALOG if os.path.isfile(_CHECKOUT_CATALOG)
+                else _PACKAGED_CATALOG)
 VALID_REGIONS = {"cn", "global"}
 VALID_ROLES = {"buyer", "seller"}
 VALID_READER_STATUS = {"cataloged", "schema_ready", "synthetic_tested", "live_validated"}

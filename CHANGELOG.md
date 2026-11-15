@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 — 2026-11-15
+
+Distribution: the buyer ledger now ships as its own installable package,
+`verovo-buyer-ledger` 0.1.0, with the console script `verovo-close`. A buyer can
+install the ledger and run the close chain without cloning this repository.
+`verovo` 0.14.0 and `verovo-buyer-ledger` 0.1.0 are built locally and ready to
+publish; neither wheel has been uploaded to PyPI from this working copy.
 
 V-01 (differential cause qualification): an amount difference and its cause
 are now separate claims in the ai-invoice-reconciliation example; no cause is

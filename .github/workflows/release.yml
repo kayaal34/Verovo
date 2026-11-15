@@ -91,6 +91,21 @@ jobs:
             gh release create "$TAG" --title "$TAG — Verovo" --notes-file "$NOTES"
           fi
 
+      # The buyer ledger ships as its own distribution. Its PyPI project does
+      # not exist yet (trusted publishing for a new project needs a one-time
+      # web setup), so the wheel is attached to the release instead:
+      #   pip install https://github.com/roy-tong/Verovo/releases/download/<tag>/verovo_buyer_ledger-<ver>-py3-none-any.whl
+      - name: Build the buyer-ledger wheel
+        run: |
+          python3 -m pip install --upgrade pip build
+          python3 -m build --wheel --outdir dist-buyer buyer-ledger/
+          ls -l dist-buyer/
+
+      - name: Attach the buyer-ledger wheel to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist-buyer/*.whl --clobber
+
       - name: Mark v0.1.0 as superseded (history kept, not deleted)
         env:
           GH_TOKEN: ${{ github.token }}

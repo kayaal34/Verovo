@@ -68,6 +68,30 @@ Agent 宿主可通过 MCP 只读调用同一核验（`verovo-mcp`：`verovo_revi
 分别填写收费规则与业务判据，并指定本地 JSON 证据字段。工具比较所提供的判据和记录；
 规则是否适用、来源是否可信仍须人工复核，不自动解析任意合同或评价所有 AI 输出。
 
+## 安装买方账本（独立包）
+
+`pip install verovo` 安装的是核验与复算 CLI。买方账本是**独立发行包
+`verovo-buyer-ledger` 0.1.0**，命令为 `verovo-close`。它已构建待发布，
+**尚未上传 PyPI**；当前从仓库本地安装：
+
+```bash
+python3 -m pip install ./buyer-ledger
+
+verovo-close close init ./close-2026-10 --from-job ./bundle/period-job.json
+verovo-close close ingest ./close-2026-10 --bundle ./bundle
+verovo-close close mapping ./close-2026-10
+verovo-close close mapping ./close-2026-10 --confirm --review-by finance
+verovo-close close calculate ./close-2026-10
+verovo-close close report ./close-2026-10
+verovo-close close signoff ./close-2026-10 --by buyer-controller --scope "accept the October period"
+```
+
+仓库内的 `python3 -m buyer_ledger` 用法不变。账本的 `close calculate` /
+`close report` 复用 `verovo_healthcheck.canonical_finance`，不复制第二套
+引擎，因此声明 `verovo>=0.13.0` 为本仓库自己的运行依赖，不是第三方库。
+账本其余代码仍只用 Python 标准库；浏览器采集才需要可选安装 Playwright。
+详见 [buyer-ledger/README.md](buyer-ledger/README.md)。
+
 ## 使用已有核账工具
 
 ```bash

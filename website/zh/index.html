@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verovo | AI 任务成本与业务价值</title>
+  <meta name="description" content="连接 AI 用量、供应商收费与业务结果。核对账单、归集任务成本，并在有证据时计算每个已验证成功的成本。">
+  <link rel="icon" type="image/svg+xml" href="../assets/favicon.svg">
+  <link rel="canonical" href="https://roy-tong.github.io/Verovo/zh/index.html">
+  <link rel="alternate" hreflang="en" href="https://roy-tong.github.io/Verovo/">
+  <link rel="alternate" hreflang="zh-CN" href="https://roy-tong.github.io/Verovo/zh/index.html">
+  <link rel="alternate" hreflang="x-default" href="https://roy-tong.github.io/Verovo/">
+  <meta name="theme-color" content="#090C10">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Verovo">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="Verovo | AI 任务成本与业务价值">
+  <meta property="og:description" content="买方侧 AI 费用与交付核验。两条独立工作流、明确判据和可检查证据，用于付款、验收与续约。">
+  <meta property="og:url" content="https://roy-tong.github.io/Verovo/zh/index.html">
+  <meta property="og:image" content="https://roy-tong.github.io/Verovo/assets/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="Verovo：核验 AI 收费、工具账单与交付证据">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Verovo | AI 任务成本与业务价值">
+  <meta name="twitter:description" content="买方侧 AI 费用与交付核验。两条独立工作流、明确判据和可检查证据，用于付款、验收与续约。">
+  <meta name="twitter:image" content="https://roy-tong.github.io/Verovo/assets/social-preview.png">
+  <meta name="twitter:image:alt" content="Verovo：核验 AI 收费、工具账单与交付证据">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <script>document.documentElement.classList.add("js");</script>
+  <script defer src="../script.js"></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "Verovo | AI 任务成本与业务价值",
+    "description": "买方侧 AI 费用与交付核验。两条独立工作流、明确判据和可检查证据，用于付款、验收与续约。",
+    "url": "https://roy-tong.github.io/Verovo/zh/index.html",
+    "inLanguage": "zh-CN",
+    "isPartOf": {
+      "@type": "WebSite",
+      "name": "Verovo",
+      "url": "https://roy-tong.github.io/Verovo/"
+    },
+    "about": {
+      "@type": "SoftwareApplication",
+      "name": "Verovo",
+      "applicationCategory": "BusinessApplication",
+      "operatingSystem": "Any"
+    }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+  <span class="nav-sentinel" id="nav-sentinel" aria-hidden="true"></span>
+
+  <!-- ══════════════════ 导航 ══════════════════ -->
+  <header class="nav" id="top">
+    <div class="nav-inner">
+      <a class="brand" href="#top" aria-label="Verovo 首页">
+        <span class="brand-plate"><img class="brand-mark" src="../assets/verovo-mark.png" alt="" width="42" height="23"></span>Verovo<span class="brand-cursor" aria-hidden="true">_</span>
+      </a>
+      <nav class="nav-links" id="nav-links" aria-label="页面分区">
+        <a href="#whynow">买方决策</a>
+        <a href="../tools.html">工具账单</a>
+        <a href="#how">本地开始</a>
+        <a href="#evidence">证据</a>
+        <a href="#developers">开发者工具</a>
+        <a href="#pricing">免费测量</a>
+        <a href="../index.html" hreflang="en" lang="en">EN</a>
+        <a class="ext" href="https://github.com/roy-tong/verovo" target="_blank" rel="noopener">GitHub&nbsp;↗</a>
+      </nav>
+      <div class="nav-cta">
+        <a class="btn btn-primary btn-sm" href="../first-look.html#contact">讨论一个买方任务&nbsp;→</a>
+        <button class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="nav-links" aria-label="切换菜单">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main">
+
+  <!-- ══════════════════ 首屏 ══════════════════ -->
+  <section class="hero" aria-label="介绍">
+    <div class="hero-grid">
+      <div class="hero-copy">
+        <p class="eyebrow reveal">面向采购 AI 服务的团队——业务、工程与财务</p>
+        <h1 class="reveal d1">算清成本。<br><em>核验价值。</em></h1>
+        <p class="lede reveal d2">把收费规则、支出记录和交付证据与你的业务要求连起来。付款、验收或续约之前，先知道哪些对得上、哪些需要处理、哪些仍然未知。</p>
+        <p>连接用量、财务记录和业务结果。用本地 <code>economics</code> 命令计算任务成本与每个已验证成功的成本。<a href="https://github.com/roy-tong/Verovo/blob/main/docs/task-economics.md">试用任务经济性 →</a></p>
+        <div class="hero-actions reveal d4">
+          <a class="btn btn-primary" href="../first-look.html#contact">讨论你的费用或交付任务</a>
+          <a class="btn btn-ghost" href="../examples/buyer-review.html">查看一份买方核验</a>
+        </div>
+        <p class="note">本地工具支持有限范围的复算，以及明确的费用/交付判据。企业核验的范围与费用仍在验证中，不承诺追回。<a href="../first-look.html">查看买方工作流与限制</a>。</p>
+        <p class="note">如果你在处理本地 Agent 日志：使用<a href="#how">免费开发者工具</a>或<a href="../services.html">免费测量任务</a>。中文常见问题：<a href="../faq.html">账单核对与免费任务</a>。</p>
+        <p class="note reveal d5" style="margin-top:14px"><strong>CLI v0.13.0</strong> 已在 <a href="https://github.com/roy-tong/Verovo/releases/tag/v0.13.0" target="_blank" rel="noopener">GitHub</a> 与 <a href="https://pypi.org/project/verovo/" target="_blank" rel="noopener">PyPI</a> 发布。<a href="https://www.npmjs.com/package/@verovo/mcp" target="_blank" rel="noopener">SDK v0.3.0</a>。2026-11-04 验证 761 项本地测试；复杂 fixture 为合成数据。客户付费与重复使用仍未验证。</p>
+      </div>
+
+      <!-- 复算控制台：`verovo recount` 在 5 行合成样本上的真实输出 -->
+      <div class="console reveal d2" id="console" aria-label="示例账单复算：供应商规则、双向发现、美元差额">
+        <div class="console-bar">
+          <span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span>
+          <span class="console-title">verovo recount --export export.csv --vendor zendesk</span>
+          <button class="console-replay" id="console-replay" type="button" title="重放报告">重放</button>
+        </div>
+        <div class="console-body" id="console-body">
+          <div class="cline"><span class="tag-ok">✓ RULE</span><span class="path"> Zendesk AI Agents</span><span class="num right">USD 2.0 / resolution</span></div>
+          <div class="cline"><span class="k">source: Zendesk help centre (edited 2026-08-25) · confidence P</span></div>
+          <div class="cline rule"></div>
+          <div class="cline"><span class="tag-failed">✗ FAIL</span><span class="path"> billed but not billable</span><span class="num right">1</span></div>
+          <div class="cline"><span class="tag-ok">✓ PASS</span><span class="path"> agrees with the vendor</span><span class="num right">0</span></div>
+          <div class="cline"><span class="tag-unknown">? UNPROVABLE</span><span class="path"> cannot settle</span><span class="num right">4 (80.0%)</span></div>
+          <div class="cline rule"></div>
+          <div class="cline"><span class="k">billed flags at published price</span><span class="num right">$10.00</span></div>
+          <div class="cline"><span class="k">verified billable total</span><span class="num right">UNKNOWN</span></div>
+          <div class="cline"><span class="k">rule-priced finding (not recovered)</span><span class="num-warn right">$2.00</span></div>
+          <div class="cline"><span class="k">cannot-settle removed, not zeroed —</span><span class="num right">$8.00</span></div>
+          <div class="cline cursor-line"><span class="cursor" aria-hidden="true">▌</span></div>
+        </div>
+        <div class="console-foot">
+          <span class="mono-xs">5 行合成样本 · 当前内置 6 套供应商规则（Intercom、Zendesk、HubSpot……）</span>
+          <span class="mono-xs dim">复算只是算术，不是裁决</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 状态条 -->
+    <div class="status-strip reveal d5" role="list" aria-label="项目状态">
+      <div class="status" role="listitem"><span class="status-k">开源</span><span class="status-v ok">MIT</span></div>
+      <div class="status" role="listitem"><span class="status-k">规范</span><span class="status-v spec" data-status="spec">Draft 0.4.5</span></div>
+      <div class="status" role="listitem"><span class="status-k">CLI</span><span class="status-v ok">v0.13.0 · PyPI</span></div>
+      <div class="status" role="listitem"><span class="status-k">SDK</span><span class="status-v" data-status="sdk">v0.3.0</span></div>
+      <div class="status" role="listitem"><span class="status-k">工具账单</span><span class="status-v spec">26 项编目 · 0 项实测验证</span></div>
+      <div class="status" role="listitem"><span class="status-k">生态审计</span><span class="status-v ok">110 个工具 · 9 月报告</span></div>
+      <div class="status" role="listitem"><span class="status-k">上游修复</span><span class="status-v ok">见带日期的 claims 索引</span></div>
+    </div>
+  </section>
+
+  <section class="section" id="whynow" aria-label="买方决策"><div class="wrap">
+<h2 class="reveal">一个账单问题，和一个续约决定，需要不同的证据。</h2>
+<div class="who-grid">
+<div class="who-card reveal"><span class="who-k">费用核验</span><p>对照适用约定与记录，检查某一笔具体收费。有支持材料的差异可以进入供应商复核；它还不是退款。</p></div>
+<div class="who-card reveal"><span class="who-k">验收或续约</span><p>把可观察的工作与你写明的业务要求对照。即使每一笔收费都与约定一致，也可以单独委托交付核验。</p></div>
+<div class="who-card reveal"><span class="who-k">一项共同的买方决策</span><p>运营解释工作内容，财务或采购掌握支出。我们先确定任务、可用证据，以及谁有权行动。</p></div>
+</div><p class="note">缺证据就保持未知。更严格的业务要求，不会自动让一笔收费变成错误。本地核验只比较明确判据与你提供的观察记录。更完整的客户工作流仍待验证；不存在通用的自动化质量评分。</p>
+</div></section>
+
+<section class="section section-panel" id="review" aria-label="本地买方核验"><div class="wrap">
+<h2 class="reveal">两个结论。一份可检查的核验。</h2>
+<p class="body-secondary reveal">main 预览中的 review 命令读取你限定范围的任务和本地 JSON 证据。你提供适用的收费规则与业务判据；每项检查都显示它的观察值、规则引用和证据哈希。</p>
+<div class="who-grid">
+<div class="who-card reveal"><span class="who-k">费用：PASS</span><p>合成发票与提供的约定总额一致。这个结论只适用于该项检查。</p><span class="who-v">收费判据满足</span></div>
+<div class="who-card reveal"><span class="who-k">交付：FAIL</span><p>同一示例超出了买方对需要人工补救的任务所设上限。收费正确，并不能了结验收。</p><span class="who-v">业务判据未满足</span></div>
+<div class="who-card reveal"><span class="who-k">一处证据缺口</span><p>缺失的完成记录保持 UNPROVABLE。报告会写明缺什么，而不是假设成功或失败。</p><span class="who-v">未知保持可见</span></div>
+</div>
+<div class="terminal" style="margin-top:30px"><div class="terminal-body"><pre style="white-space:pre-wrap">git clone https://github.com/roy-tong/verovo.git
+cd verovo
+python3 healthcheck/verovo review --sample --html buyer-review.html</pre></div></div>
+<p class="note">合成示例，不是客户结果。CLI v0.13.0 提供。规则适用性与来源真实性由人确认。<a href="https://github.com/roy-tong/verovo/blob/main/docs/buyer-review.md">准备你自己的任务 →</a></p>
+<div class="trial-actions"><a class="btn btn-primary" href="../examples/buyer-review.html">打开示例报告</a><a class="btn btn-ghost" href="../first-look.html#contact">讨论真实任务</a></div>
+<p class="body-secondary" style="margin-top:30px">AI 客服是首个应用场景。编程 Agent、自动化平台、工具/API 和模型服务通过具体的买方任务进入；能力按范围逐项验证。</p>
+</div></section>
+
+<section class="section section-panel" id="toolbills" aria-label="工具账单覆盖"><div class="wrap">
+<h2 class="reveal">很多工具账单。一层证据。</h2>
+<p class="body-secondary reveal">Agent 工具按 token、搜索、credits、浏览器小时、沙箱秒数、页数、字符、图片和席位收费。Buyer Ledger 编目这些计费维度，导入证据，并把发票事实与用量能够证明的部分分开。</p>
+<div class="who-grid">
+<div class="who-card reveal"><span class="who-k">买方</span><p>对照用量与适用定价，检查平台、直连和云市场收费，包括免费额度、预付包和 credits。</p><span class="who-v">费用核验</span></div>
+<div class="who-card reveal"><span class="who-k">有具体任务的供应商</span><p>作为买方核验上游支出。下游收费核验从具体争议、收入差异或采购要求延伸。</p><span class="who-v">由交易驱动的延伸</span></div>
+<div class="who-card reveal"><span class="who-k">从现有记录开始</span><p>使用授权导出、API 或本地文件。浏览器采集是任务需要时的可选接入方式；不假设门户一定可覆盖。</p><span class="who-v">任务先于集成</span></div>
+</div>
+<div class="terminal" style="margin-top:30px"><div class="terminal-body"><pre style="white-space:pre-wrap">python3 -m buyer_ledger catalog summary
+python3 -m buyer_ledger catalog coverage --period 2026-10
+python3 -m buyer_ledger fetch --recipe bill.recipe.json --period 2026-10 --cdp http://127.0.0.1:9222 --analyze --out report.md</pre></div></div>
+<p class="note">研究预览：已编目 26 个国内外工具。编目不等于接通，0 个工具经过真实客户账单验证。<a href="../tools.html">查看支持矩阵与限制 →</a></p>
+</div></section>
+
+<section class="section" id="reconciliation" aria-label="已完成的发票对账"><div class="wrap">
+<h2 class="reveal">一张 $26,563.25 的 AI 发票，对到分。</h2>
+<p class="body-secondary reveal">一张合成账单、一个供应商、一个账期。核验从四段输入加输出重新计算用量，再逐行对账发票，直到只剩无法解释的残差。</p>
+<div class="who-grid">
+<div class="who-card reveal"><span class="who-k">按用量重算</span><p>$38,462.06——按合成用量导出，四段输入与输出的标价合计。</p><span class="who-v">独立重算</span></div>
+<div class="who-card reveal"><span class="who-k">发票总额</span><p>$26,563.25——扣除 $20,000.00 credits，加上 $6,000.00 席位费和 $1,956.96 税；后两项从不出现在用量数据里。</p><span class="who-v">已知条目已解释</span></div>
+<div class="who-card reveal"><span class="who-k">未解释残差</span><p>所有已知条目之后仍剩 $144.23。根因未知（状态 UNPROVABLE）；价格档位解读只是假设，需要合同价格表。不是退款主张。</p><span class="who-v">未知保持可见</span></div>
+</div>
+<p class="note">合成样本，不是客户账单：一个供应商、一个账期、USD、固定种子生成器（<code>random.seed(42)</code>）、Decimal 运算，只对合计做一次 <code>ROUND_HALF_UP</code> 到分（不是逐行；逐行四舍五入会让总额最多每行偏移半分，本示例未建模）。恒等式：38,462.06 + 6,000.00 − 20,000.00 + 1,956.96 + 144.23 = 26,563.25。成本导出比复算低 $7,254.73，因为它完全没有 cache-read 桶——每行缺失 $15–$150，是漏掉的条目，而不是按分取整造成的误差。<strong>对到分只证明在给定价格、规则和输入下算术一致。它不证明用量导出完整、价格公允或服务已交付</strong>；导出无法支持的部分保持 UNPROVABLE。复现：<code>cd buyer-ledger/examples/ai-invoice-reconciliation &amp;&amp; python3 make_demo.py &amp;&amp; python3 reconcile.py</code>（<a href="https://github.com/roy-tong/verovo/tree/main/buyer-ledger/examples/ai-invoice-reconciliation">fixture 与脚本</a>）。</p>
+<div class="trial-actions"><a class="btn btn-primary" href="../blog/ai-invoice-reconciliation.html">读方法：七种失效模式</a><a class="btn btn-ghost" href="../blog/resolution-bill-check.html">按解决量计费：谁做的证明？</a></div>
+</div></section>
+
+<section class="section" id="buyer-workflow" aria-label="买方核验工作流"><div class="wrap">
+<h2 class="reveal">从记录到团队可用的决定。</h2>
+<div class="trial-points">
+<div class="trial-point"><span class="trial-k">确认任务</span><p>写明供应商、账期或决定日期、可用记录类型和负责人。第一次沟通不需要完整原始导出。</p></div>
+<div class="trial-point"><span class="trial-k">检查证据</span><p>约定支持范围。双向保留发现、适用规则、重跑步骤和缺失证据。</p></div>
+<div class="trial-point"><span class="trial-k">跟踪行动</span><p>把供应商认可、实际退款或已使用 credits、买方决定和任何约定的服务费分开记录。报告本身不是已实现的价值。</p></div>
+</div><p class="body-secondary">采购顾问与支持实施方可以带来具体的客户任务。我们从边界清晰的工作和明确的责任开始。</p>
+<a class="btn btn-primary" href="../first-look.html#contact">描述一个买方任务</a>
+<a class="btn btn-ghost" href="../recount.html">试用免费账单复算</a>
+</div></section>
+
+  <!-- ══════════════════ 03 · 核验如何工作 ══════════════════ -->
+  <section class="section section-panel" id="how" aria-label="本地开始"><div class="wrap">
+<h2 class="reveal">开发者工具：检查你自己的日志。</h2>
+<p class="body-secondary">面向使用 Codex 或 Claude Code 的开发者：先跑一个合成示例。你需要 Python 3.9+ 和一台电脑上的终端。不需要日志或账号。</p>
+<div class="terminal"><div class="terminal-body"><pre style="white-space:pre-wrap"># 当前 CLI 发行版，已发布在 PyPI
+python3 -m pip install "verovo==0.13.0"
+verovo demo</pre></div></div>
+<p class="note">在运行命令的文件夹里打开 <code>verovo-demo-report.html</code>。终端会打印确切路径。示例包含一条重试链和若干失败执行；这些是演示用发现，不是安装失败。</p>
+<details><summary>只是随便看看？先看一份解释长什么样</summary><p>合成 demo 显示 1 条重试链（含 3 次执行）和 7 次失败执行。这不能证明 7 个 bug 或 7 笔收费。下一步有用的检查是查看最长失败运行里的第一个错误。</p><p><a href="../examples/healthcheck-report.html">读一份示例诊断</a>。要检查你自己的会话，请在存有日志的那台电脑上运行 CLI。</p></details>
+<details id="install-help"><summary>安装帮助：macOS、Linux、Windows</summary><p>使用 Python 3.9+。Windows 上如需要，用 <code>py</code> 代替 <code>python</code>。macOS/Linux 上没有 <code>python</code> 时用 <code>python3</code>。</p><p>如果 pip 提示 “externally managed” 或没有权限，使用本地虚拟环境：</p><pre style="white-space:pre-wrap">python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade verovo
+.venv/bin/verovo demo</pre><p>Windows PowerShell：</p><pre style="white-space:pre-wrap">py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade verovo
+.\.venv\Scripts\verovo.exe demo</pre><p>不需要激活。后续命令使用同一个可执行文件路径。如果找不到 <code>verovo</code>，检查安装环境，不要用管理员权限全局重装。</p></details>
+<details><summary>下一步：检查你自己的日志，准备可分享的摘要</summary><pre style="white-space:pre-wrap">verovo check --json report.json
+verovo share report.json --out summary.json
+verovo validate summary.json</pre><p>两个运行时都有日志时，自动发现优先选择 Codex。Claude Code 用 <code>verovo check --runtime claude --json report.json</code>。打开终端打印路径下的 HTML 报告；完整 JSON 与 HTML 留在本地。发送前先检查 summary.json。导出不是上传。</p></details>
+<details><summary>没有日志、报错或结果不符合预期？</summary><p>最近七天没有日志？试试 <code>verovo check --all</code>，或用 <code>--dir "/path/to/logs" --runtime codex</code> 指向真实目录（Claude Code 用 <code>claude</code>）。空目录会产生输入错误，不是“一切正常”。命令失败时，先停下，不要继续跑导出命令。</p><p>Healthcheck 退出码 0 表示报告已运行，即使报告里有发现。退出码 2 表示输入/输出问题。UNPROVABLE 表示缺证据，不是失败，也不是干净结果。一致性检查中，退出码 1 表示某项不变量失败或必需但未证明。</p><p><a href="https://github.com/roy-tong/verovo/issues/new">报告可复现的工具 bug</a> 时请附版本、命令、预期行为和脱敏后的错误。不要把原始日志、report.json 或凭据贴到公开 issue。报告可复现的工具 bug 是免费的。</p></details>
+<p><a href="https://github.com/roy-tong/verovo/blob/main/README.zh-CN.md">中文使用说明</a> · <a href="https://github.com/roy-tong/verovo/blob/main/conformance/pack/README.md">维护者 / 计量快速上手</a></p>
+<div class="trial-points"><div class="trial-point"><span class="trial-k">1 · 免费运行</span><p>查看覆盖面与发现。CLI 与公开检查保持免费。</p></div><div class="trial-point"><span class="trial-k">2 · 确认范围</span><p>免费测量任务请带脱敏样本。企业费用或交付核验从单独的任务匹配讨论开始。</p></div><div class="trial-point"><span class="trial-k">3 · 拿到报告</span><p>免费样本检查通常在样本合格后 48 小时内完成。企业范围、时间和任何费用按具体任务约定。</p></div></div>
+<a class="btn btn-primary" href="../services.html">阅读范围并申请</a></div></section>
+
+  <!-- ══════════════════ 04 · 核验检查什么 ══════════════════ -->
+  <section class="section" id="checks" aria-label="核验检查什么">
+    <div class="wrap">
+      <h2 class="reveal d1">相似的事件。不同的事实。</h2>
+      <p class="body-secondary reveal d2">可靠的 Agent 指标所依赖的区分——各自独立，各有自己的证据门槛。</p>
+
+      <div class="claims">
+        <div class="claim reveal">
+          <div class="claim-main">
+            <span class="claim-no">01</span>
+            <p class="claim-line"><span>尝试</span><span class="neq-big">≠</span><span>操作</span></p>
+            <p class="claim-cap">尝试是执行事实。操作是逻辑意图。重试是同一个操作的多次尝试，不是“2 个操作，成功率 50%”。</p>
+          </div>
+          <div class="claim-diagram" aria-label="一个意图的两次尝试等于一个操作">
+            <div class="dl">1 个意图</div>
+            <div class="dl dim">↓</div>
+            <div class="dl">尝试 01 <span class="x">✕</span></div>
+            <div class="dl">尝试 02 <span class="ok">✓</span></div>
+            <div class="dl dim">↓</div>
+            <div class="dl hl">= 1 个操作</div>
+          </div>
+        </div>
+
+        <div class="claim reveal d1">
+          <div class="claim-main">
+            <span class="claim-no">02</span>
+            <p class="claim-line"><span>可用</span><span class="neq-big">≠</span><span>有影响</span></p>
+            <p class="claim-cap">工具结果出现在下一轮上下文里，证明的是可用。影响——它改变了 Agent 的行为——需要反事实证据。引用是弱估计量，不是状态。未知是合法的一等答案。</p>
+          </div>
+          <div class="claim-diagram" aria-label="工具返回了结果；调用方是否消费它是另一项事实">
+            <div class="dl">工具返回了结果</div>
+            <div class="dl dim">↓</div>
+            <div class="dl warn">?</div>
+            <div class="dl dim smaller">调用方真的用了吗？</div>
+            <div class="dl gap-line"><span class="k2">RETURNED</span><span class="ok">可观察</span></div>
+            <div class="dl gap-line"><span class="k2">CONSUMED</span><span class="warn">需要证据</span></div>
+          </div>
+        </div>
+
+        <div class="claim reveal d2">
+          <div class="claim-main">
+            <span class="claim-no">03</span>
+            <p class="claim-line"><span>观察到</span><span class="neq-big">≠</span><span>推断出</span></p>
+            <p class="claim-cap">选择不是偏好。模型、路由、策略、工作流或用户都可以做出选择。Verovo 先记录发生了什么，再推断为什么。</p>
+          </div>
+          <div class="claim-diagram" aria-label="选择可以由模型、路由、策略、工作流或用户做出">
+            <div class="dl k2">selected_by:</div>
+            <div class="dl">model / router / policy</div>
+            <div class="dl">workflow / user / platform</div>
+            <div class="dl dim">↓</div>
+            <div class="dl hl">发生了什么 ≠ 为什么</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 01 · 证据 ══════════════════ -->
+  <section class="section" id="evidence" aria-label="生态审计">
+    <div class="wrap">
+      <div class="audit-band">
+        <div class="audit-numbers">
+          <div class="an"><span class="an-v">110+</span><span class="an-k">深度阅读的仓库</span></div>
+          <div class="an"><span class="an-v">45+</span><span class="an-k">已确认的计量会计 bug</span></div>
+          <div class="an"><span class="an-v">23</span><span class="an-k">上游已合并或接受的修复</span></div>
+          <div class="an"><span class="an-v">136K</span><span class="an-k">第三方复核的事件数</span></div>
+        </div>
+        <div class="audit-copy">
+          <h2 class="reveal d1">我们审计了 AI 用量工具生态。<br>同样的五个 bug 反复出现。</h2>
+          <p class="reveal d2">一条助手消息按内容块计费（2–5 倍）。重发的 Codex 事件被计两次。缓存写入按 1.25 倍而不是 2 倍计价。价格表偏差 5 倍——包括行业里被当作定价基准的那份。会话恢复时被清空。每项发现：固定 commit、可运行复现、公开提交——<strong>报告里链接了上游回应</strong>；一位外部维护者对 136k 事件语料的复核挑战了一项初始发现，并促成了更正。</p>
+          <p class="note">审计计数来自 2026 年 9 月报告；它们描述技术发现，不是付费采用。</p><p class="note reveal d3"><a href="https://github.com/roy-tong/verovo/blob/main/campaigns/audit-report-2026-09.md">读 Token-Accounting Bug Report&nbsp;→</a></p>
+          <p class="note reveal d4"><a href="https://github.com/roy-tong/verovo/blob/main/conformance/evidence/rulestack-cache-prefix-overhead/README.md">外部方法更正：作者把 436k 修正为 54,154 token；不是美元发票&nbsp;→</a></p>
+          <p class="note reveal d4"><a href="https://github.com/roy-tong/verovo/blob/main/campaigns/tool-authors.md">维护用量工具？用我们的 fixture 在 10 分钟内审计它&nbsp;→</a></p>
+        </div>
+      </div>
+      <div class="evidence-links reveal d5">
+        <a href="../claims.html">计量 claims 索引&nbsp;→</a>
+        <a href="../rules/index.html">供应商规则卡&nbsp;→</a>
+        <a href="../badges.html">VSS-1 徽章&nbsp;→</a>
+        <a href="../releases.html">发行说明&nbsp;→</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 05 · 免费层 ══════════════════ -->
+  <section class="section section-panel" id="pricing" aria-label="免费测量"><div class="wrap">
+<h2 class="reveal">这里的一切都免费。</h2>
+<p class="body-secondary">自己运行工具，或带一份脱敏样本获得人工测量检查——免费，样本合格后通常 48 小时内。此前列在这里的 $10/$20 开发者诊断已于 2026-10-21 移除；这些样本测量与开源工具仍然免费。企业买方核验有单独、逐个约定的范围。</p>
+<div class="pricing-grid"><div class="pricing-card"><div class="pricing-name">自己运行</div><div class="pricing-price">$0</div><ul class="pricing-list"><li>本地 Healthcheck 与一致性检查</li><li>开源 SDK 与公开规则</li><li>无需账号或上传</li></ul><a class="btn btn-ghost" href="#how">运行免费检查</a></div>
+<div class="pricing-card pricing-card-hi"><div class="pricing-name">免费测量任务</div><div class="pricing-price">$0</div><ul class="pricing-list"><li>你的 20–100 行脱敏数据，我们检查</li><li>发现是可核验的 claims；你的观察面看不见的地方就是 UNPROVABLE</li><li>只有你允许时，才以你的名义发布 fixture</li></ul><a class="btn btn-primary" href="../services.html">开始免费任务</a></div>
+<div class="pricing-card"><div class="pricing-name">带来一个供应商面</div><div class="pricing-price">$0</div><ul class="pricing-list"><li>面向 MCP/API 供应商的外部测量</li><li>映射以书面回答；漂移会大声失败</li><li>公开线程，下一位供应商也能读到</li></ul><a class="btn btn-ghost" href="https://github.com/roy-tong/verovo/issues/6">Issue #6</a></div></div>
+<p class="note">如果这次检查有用，给仓库点个 star 能帮别人找到它——从不要求，也从不作为条件。</p>
+</div></section>
+
+  <!-- ══════════════════ 06 · 原则 ══════════════════ -->
+  <section class="section" id="principles" aria-label="原则">
+    <div class="wrap">
+      <h2 class="reveal d1">付费从不改变证据说什么。</h2>
+      <p class="body-secondary reveal d2">这些规则写在任何人要求我们通融之前。</p>
+
+      <div class="who-grid">
+        <div class="who-card reveal d1">
+          <span class="who-k">永久免费</span>
+          <p>规范、引擎、SDK、一致性检查和本地 dashboard 保持开放。免费清单写进治理——之后不可撤销。</p>
+          <span class="who-v">工具保持开放</span>
+        </div>
+        <div class="who-card reveal d2">
+          <span class="who-k">本地优先，选择加入</span>
+          <p>原始数据默认不离开你的机器。是否发送聚合摘要或手动脱敏样本用于诊断，由你决定。</p>
+          <span class="who-v">你的 trace 仍属于你</span>
+        </div>
+        <div class="who-card reveal d3">
+          <span class="who-k">排名不出售</span>
+          <p>没有付费展示位，没有推荐位，不托管资金。裁判一旦卖货架，测量就不再有任何意义。</p>
+          <span class="who-v">发现保持可复核</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════ 07 · 开源工具链 ══════════════════ -->
+  <section class="section section-panel" id="developers" aria-label="开源工具链">
+    <div class="wrap">
+      <h2 class="reveal d1">测量工具链<br>是开源的。</h2>
+      <p class="body-secondary reveal d2">语义、规则和一致性向量都在 GitHub 公开。维护者和工具作者：这是你的入口。</p>
+
+      <div class="try-grid">
+        <div class="terminal reveal d1" aria-label="终端：克隆仓库并运行端到端 demo">
+          <div class="console-bar">
+            <span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span>
+            <span class="console-title">sh / demo</span>
+          </div>
+          <div class="terminal-body">
+            <div class="tl"><span class="prompt">$</span> git clone https://github.com/roy-tong/verovo</div>
+            <div class="tl"><span class="prompt">$</span> cd Verovo</div>
+            <div class="tl"><span class="prompt">$</span> ./examples/demo-e2e.sh</div>
+            <div class="tl gap"></div>
+            <div class="tl out"><span class="ok">✓</span> 42 calls captured - mock MCP server, 3 caller classes</div>
+            <div class="tl out"><span class="ok">✓</span> 84 canonical observations · 0 rejected</div>
+            <div class="tl out"><span class="ok">✓</span> operation correlation - strict, no fallback counting</div>
+            <div class="tl out"><span class="ok">✓</span> caller attribution: claude&nbsp;14 / codex&nbsp;14 / unknown&nbsp;14</div>
+            <div class="tl out"><span class="ok">✓</span> strict qualified 0% - synthetic traffic excluded</div>
+            <div class="tl out"><span class="ok">✓</span> deterministic replay - same fixture, same result</div>
+          </div>
+          <div class="console-foot"><span class="mono-xs">需要 node&nbsp;≥&nbsp;18 + python3，无外部依赖，隔离工作区</span></div>
+        </div>
+
+        <div class="try-proofs">
+          <h3 class="reveal d2">今天已交付的内容</h3>
+          <ul class="proofs">
+            <li class="reveal d2"><span class="ok">●</span> 规范观察——一个可移植 schema</li>
+            <li class="reveal d3"><span class="ok">●</span> 操作/尝试关联，fail-closed</li>
+            <li class="reveal d3"><span class="ok">●</span> CI 中的一致性向量——PASS / FAIL / UNPROVABLE</li>
+            <li class="reveal d4"><span class="ok">●</span> 无需任何云端的本地分析</li>
+            <li class="reveal d4"><span class="ok">●</span> 确定性重放——可复现的数字</li>
+          </ul>
+          <div class="spec-chips reveal d4" style="margin-top:14px">
+            <span class="chip"><span data-status="sdkTests">21</span>&nbsp;项 SDK 测试</span>
+            <span class="chip">761 项本地测试 · 2026-11-04</span>
+            <span class="chip">一致性向量 · <span data-status="conformance">通过</span></span>
+            <span class="chip">无需云端</span>
+          </div>
+          <a class="btn btn-ghost reveal d5" href="https://github.com/roy-tong/verovo#re-count-a-bill-in-60-seconds" target="_blank" rel="noopener">打开 Quickstart&nbsp;→</a>
+          <p class="note reveal d5">数字跟踪 <a href="https://github.com/roy-tong/verovo/releases" target="_blank" rel="noopener">releases</a> 与 <a href="https://github.com/roy-tong/verovo/blob/main/ROADMAP.md" target="_blank" rel="noopener">roadmap</a> · 最近验证 <a data-status-verified href="https://github.com/roy-tong/verovo/actions" target="_blank" rel="noopener">CI runs</a>。</p>
+        </div>
+      </div>
+
+      <div class="how-grid" style="margin-top:44px">
+        <div class="arch reveal d1" aria-label="架构：Agent 运行时通过 MCP、API 或 CLI 调用能力供应商；供应商内的 Verovo SDK 发出观察，进入本地采集器，再供本地或托管分析使用">
+          <div class="arch-node arch-agent">
+            <span class="arch-k">Agent</span>
+            <span class="arch-sub">Claude / Codex / 任意运行时</span>
+          </div>
+          <div class="arch-arrow"><span class="arch-line"></span><span class="arch-label">MCP / API / CLI</span><span class="arch-head">▼</span></div>
+          <div class="arch-node arch-provider">
+            <span class="arch-k">能力供应商</span>
+            <div class="arch-rows">
+              <div class="arch-row">业务 handler</div>
+              <div class="arch-row arch-sdk">Verovo SDK</div>
+            </div>
+          </div>
+          <div class="arch-arrow"><span class="arch-line"></span><span class="arch-label">observations · JSONL</span><span class="arch-head">▼</span></div>
+          <div class="arch-node arch-collector">
+            <span class="arch-k">本地采集器</span>
+          </div>
+          <div class="arch-split">
+            <div class="arch-branch">
+              <div class="arch-arrow"><span class="arch-line"></span><span class="arch-head">▼</span></div>
+              <div class="arch-node arch-local"><span class="arch-k">本地分析</span><span class="arch-sub">无需云端</span></div>
+            </div>
+            <div class="arch-branch">
+              <div class="arch-arrow"><span class="arch-line"></span><span class="arch-head">▼</span></div>
+              <div class="arch-node arch-hosted"><span class="arch-k">托管分析</span><span class="arch-sub">当前未提供</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="how-facts">
+          <div class="fact-item reveal d2"><span class="fact-no">01</span><div><h3>无需在 Agent 侧安装</h3><p>第三方 Agent 从不需要 Verovo。测量发生在能力交付的地方。</p></div></div>
+          <div class="fact-item reveal d3"><span class="fact-no">02</span><div><h3>供应商侧测量</h3><p>SDK 包装你的工具 handler，用一种 schema 和六类 payload 发出规范观察。</p></div></div>
+          <div class="fact-item reveal d4"><span class="fact-no">03</span><div><h3>不在关键路径上</h3><p>非阻塞、持久 spool，并记录丢失。SDK 失败，你的服务器不失败。</p></div></div>
+          <div class="fact-item reveal d5"><span class="fact-no">04</span><div><h3>你的数据可以留在本地</h3><p>JSONL 在你机器上，分析在本地生成。托管摄取不在当前产品范围内。</p></div></div>
+          <p class="note reveal d5">MCP 是第一个参考接口，不是要求。闭源软件也可以用。</p>
+        </div>
+      </div>
+
+      <div class="dev-links reveal d5">
+        <a href="https://www.npmjs.com/package/@verovo/mcp" target="_blank" rel="noopener">Provider SDK @verovo/mcp&nbsp;↗</a>
+        <a href="https://github.com/roy-tong/verovo/tree/main/conformance" target="_blank" rel="noopener">一致性检查与向量&nbsp;↗</a>
+        <a href="https://github.com/roy-tong/verovo/tree/main/healthcheck" target="_blank" rel="noopener">Healthcheck 工具&nbsp;↗</a>
+        <a href="https://github.com/roy-tong/verovo/tree/main/lab" target="_blank" rel="noopener">Verovo Lab&nbsp;↗</a>
+        <a href="https://github.com/roy-tong/verovo/tree/main/profiles" target="_blank" rel="noopener">运行时可观测性矩阵&nbsp;↗</a>
+        <a href="../releases.html">发行说明&nbsp;→</a>
+        <a href="../badges.html">VSS-1 徽章&nbsp;→</a>
+        <a href="../services.html">免费测量任务&nbsp;→</a>
+      </div>
+
+      <p class="note">我们的商业验证从具体的<a href="../first-look.html">买方账单或采购任务</a>开始。Healthcheck 与 Metering QA 仍是独立的开发者服务。欢迎贡献规则、反例或适配器来改进开源工具；免费采用不是销售义务。</p>
+      <div class="trial-actions"><a class="btn btn-primary" href="../services.html">查看样本要求</a><a class="btn btn-ghost" href="https://github.com/roy-tong/verovo/blob/main/CONTRIBUTING.md">贡献一个可复现的发现</a></div>
+
+      <aside class="evidence-card reveal d5" aria-label="近期公开证据" style="margin-top:36px">
+        <div class="evidence-k">近期证据 / 发布于 2026-08-25</div>
+        <p class="evidence-line">三条真实 Langfuse demo trace 跑过规范管线：<strong>12 次尝试；分组证据 0%；安全操作覆盖 0%</strong>。所有尝试都成功，所以重试链规则从不触发，逻辑用量确实无法判定。在这里打印一个数字的报告就是在编造；这份报告说 <a href="https://github.com/roy-tong/verovo/blob/main/conformance/evidence/langfuse-demo-traces/README.md" target="_blank" rel="noopener">不可计算</a>。</p>
+      </aside>
+    </div>
+  </section>
+
+  <section class="section" id="economy" aria-label="买方驱动的扩展"><div class="wrap">
+    <h2 class="reveal">下一个任务从同一个买方开始。</h2>
+    <p class="body-secondary reveal">一次账单核验可能带出另一个验收或续约问题。只有当买方有真实决定、已约定范围并有理由委托时，我们才探索那项工作。</p>
+    <div class="who-grid">
+      <div class="who-card reveal"><span class="who-k">一个具体任务</span><p>建立可用证据、核验路径和客户可以采取的行动。</p></div>
+      <div class="who-card reveal"><span class="who-k">一次新的购买</span><p>了解同一个团队是否会委托另一个账期、验收或续约任务。</p></div>
+      <div class="who-card reveal"><span class="who-k">可重复的交付</span><p>当客户需求与交付经济性支持时，扩展规则和供应商覆盖。</p></div>
+    </div>
+    <p class="note">这些是验证步骤，不是已建立的经常性收入。计算复现支持核验；完整执行回放与训练数据选择不是当前产品承诺。</p>
+  </div></section>
+
+  </main>
+
+  <!-- ══════════════════ 页脚 ══════════════════ -->
+  <footer class="footer" aria-label="页脚">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <span class="brand"><span class="brand-plate"><img class="brand-mark" src="../assets/verovo-mark.png" alt="" width="42" height="23"></span>Verovo<span class="brand-cursor" aria-hidden="true">_</span></span>
+          <p>为 AI 服务费用与交付提供证据。</p>
+        </div>
+        <nav class="footer-col" aria-label="核验">
+          <span class="footer-k">核验</span>
+          <a href="../first-look.html">买方核验范围</a>
+          <a href="../tools.html">工具账单覆盖</a>
+          <a href="../recount.html">浏览器内复算</a>
+          <a href="../rules/index.html">供应商规则卡</a>
+          <a href="../claims.html">计量 claims 索引</a>
+          <a href="../badges.html">VSS-1 徽章</a>
+        </nav>
+        <nav class="footer-col" aria-label="项目">
+          <span class="footer-k">项目</span>
+          <a href="https://github.com/roy-tong/verovo" target="_blank" rel="noopener">GitHub</a>
+          <a href="../releases.html">发行说明</a>
+          <a href="https://github.com/roy-tong/verovo/blob/main/ROADMAP.md" target="_blank" rel="noopener">Roadmap</a>
+          <a href="https://github.com/roy-tong/verovo/discussions" target="_blank" rel="noopener">Discussions</a>
+          <a href="../services.html">免费测量任务 · $0</a>
+          <a href="../faq.html">FAQ · 常见问题（中文）</a>
+          <a href="https://roy-tong.github.io/Askovo/" target="_blank" rel="noopener">ovo family: Askovo（研究）</a>
+          <a href="https://roy-tong.github.io/Growovo/" target="_blank" rel="noopener">ovo family: Growovo（执行）</a>
+        </nav>
+        <nav class="footer-col" aria-label="标准">
+          <span class="footer-k">标准</span>
+          <a href="https://github.com/roy-tong/verovo/blob/main/standard/CORE.md" target="_blank" rel="noopener">Core</a>
+          <a href="https://github.com/roy-tong/verovo/blob/main/standard/METRICS.md" target="_blank" rel="noopener">Metrics</a>
+          <a href="https://github.com/roy-tong/verovo/blob/main/standard/SETTLEMENT.md" target="_blank" rel="noopener">Settlement（VSS-1）</a>
+          <a href="https://github.com/roy-tong/verovo/tree/main/profiles" target="_blank" rel="noopener">Harness profiles</a>
+        </nav>
+        <nav class="footer-col" aria-label="研究">
+          <span class="footer-k">研究</span>
+          <a href="https://github.com/roy-tong/verovo/blob/main/whitepaper/measuring-software-used-by-ai-agents.md" target="_blank" rel="noopener">白皮书</a>
+          <a href="../blog/outcome-yardstick.html">博客：结果这把尺子</a>
+          <a href="../blog/resolution-bill-check.html">博客：谁证明了你的解决量</a>
+          <a href="../blog/context-availability.html">博客：为什么上下文可用性决定指标</a>
+          <a href="https://github.com/roy-tong/verovo/tree/main/lab" target="_blank" rel="noopener">Lab</a>
+        </nav>
+      </div>
+      <div class="footer-bottom">
+        <span>MIT 开源。公开构建。</span>
+        <span class="footer-epigraph">Verovo 不定义谁拥有真相。它定义的是：什么证据、在什么规则下、能支持什么结论。</span>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Standalone distribution for the buyer ledger. The package stays importable as
+# `buyer_ledger`, and `python3 -m buyer_ledger` keeps working from a checkout.
+name = "verovo-buyer-ledger"
+version = "0.1.0"
+description = "Buyer-side AI service bill and usage ledger: import a period bundle, confirm the field mapping, calculate, report and sign off locally."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Roy Tong" }]
+keywords = [
+    "ai-cost",
+    "billing",
+    "reconciliation",
+    "buyer-ledger",
+    "invoice",
+    "audit",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Office/Business :: Financial :: Accounting",
+]
+# The close chain (calculate/report) reuses Verovo's canonical finance engine
+# instead of vendoring a second implementation. That is a first-party runtime
+# dependency, not a third-party library: the ledger itself still uses only the
+# Python standard library, and Playwright remains optional for browser capture.
+dependencies = ["verovo>=0.13.0"]
+
+[project.scripts]
+verovo-close = "buyer_ledger.__main__:main"
+
+[project.urls]
+Homepage = "https://roy-tong.github.io/Verovo/"
+Repository = "https://github.com/roy-tong/Verovo"
+Documentation = "https://github.com/roy-tong/Verovo/blob/main/buyer-ledger/README.md"
+
+[tool.setuptools]
+packages = ["buyer_ledger"]
+
+[tool.setuptools.package-data]
+buyer_ledger = ["data/tools.json"]

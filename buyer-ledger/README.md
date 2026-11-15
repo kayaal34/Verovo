@@ -23,11 +23,47 @@
 | 双视角 | 买家费用核验；卖家计量完整性。未计价/未关联用量不得直接宣称漏收收入 |
 | CDP 采集 | 附着用户自行启动的本地 Chrome，复用受审配方、域名/下载校验和同一入账管线；不接收密码 |
 
-## 安装与验证
+## 安装与最小用法（独立发行包）
+
+本目录同时是一个独立发行包 `verovo-buyer-ledger`（0.1.0）。它包含
+`buyer_ledger` 包、随包分发的工具能力目录，以及 console script
+`verovo-close`；`python3 -m buyer_ledger` 的用法不变。
+
+```bash
+# 从本仓库本地构建安装；发布后把路径换成不可变包名：
+#   pip install verovo-buyer-ledger
+python3 -m pip install ./buyer-ledger
+
+verovo-close close init ./close-2026-10 --from-job ./bundle/period-job.json
+verovo-close close ingest ./close-2026-10 --bundle ./bundle
+verovo-close close mapping ./close-2026-10
+verovo-close close mapping ./close-2026-10 --confirm --review-by finance
+verovo-close close calculate ./close-2026-10
+verovo-close close report ./close-2026-10
+verovo-close close signoff ./close-2026-10 --revision r1 --by buyer-controller \
+  --scope "accept the October period" --reservation "payment not authorized"
+```
+
+与 `pip install verovo` 的关系：
+
+- `verovo` 是 CLI / Healthcheck 发行包（当前 0.14.0），命令是 `verovo`；
+  `verovo-buyer-ledger` 是账本发行包（0.1.0），命令是 `verovo-close`。
+  两者独立发版，也都有各自独立的版本号。
+- 账本的 `close calculate` / `close report` 复用
+  `verovo_healthcheck.canonical_finance`，不复制第二套引擎，因此
+  `verovo-buyer-ledger` 声明 `verovo>=0.13.0` 为运行依赖。这是本仓库自己的
+  包，不是第三方依赖；账本其余代码仍只用 Python 标准库，Playwright 只在
+  浏览器采集时按需安装。
+- 安装后 `verovo-close catalog summary` 读取随包分发的
+  `buyer_ledger/data/tools.json`；仓库里的 `catalog/tools.json` 仍是可编辑
+  正本，测试保证两份逐字节一致。
+- 本机只做了 wheel 构建与干净 venv 安装/全流程验证；**尚未上传 PyPI**。
+
+## 在仓库内开发与验证
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 当前 193 项测试
+python3 -m unittest discover -s tests -t .     # 当前 201 项测试
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium
@@ -272,7 +308,7 @@ $B fetch --recipe recipe.json --period 2026-10 \
 
 | 项目 | 状态 |
 |---|---|
-| 173 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界、账期包导入/字段映射、可签核月结报告与追加式 revision/signoff |
+| 201 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界、账期包导入/字段映射、可签核月结报告与追加式 revision/signoff |
 | 合成 CSV 的 CLI 导入→复算→对账→报告 | ✅ 已端到端运行，重复导入幂等 |
 | 26 个工具的账单/计量维度编目 | ✅ 目录与未知 provider 披露已测试；不代表已接通 |
 | CDP loopback 附着、下载与自动分析 | ✅ 本机 Chrome 156 + 本地 HTTPS 合成账单：下载→入账→`--analyze` 出报告；未做真实平台账单后台验收 |

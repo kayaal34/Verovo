@@ -94,6 +94,32 @@ and follow the [input guide](docs/buyer-review.md). Checks compare supplied crit
 with values in local JSON files. A person must confirm rule applicability and source
 truth; the tool does not infer contract terms or judge arbitrary AI output quality.
 
+## Install the buyer ledger
+
+`pip install verovo` installs the review and recount CLI. The buyer ledger is a
+separate distribution, **`verovo-buyer-ledger` 0.1.0**, with the command
+`verovo-close`. It is built and ready to publish but is **not on PyPI yet**;
+install it from a checkout:
+
+```bash
+python3 -m pip install ./buyer-ledger
+
+verovo-close close init ./close-2026-10 --from-job ./bundle/period-job.json
+verovo-close close ingest ./close-2026-10 --bundle ./bundle
+verovo-close close mapping ./close-2026-10
+verovo-close close mapping ./close-2026-10 --confirm --review-by finance
+verovo-close close calculate ./close-2026-10
+verovo-close close report ./close-2026-10
+verovo-close close signoff ./close-2026-10 --by buyer-controller --scope "accept the October period"
+```
+
+`python3 -m buyer_ledger` keeps working in a checkout. The ledger package
+depends on `verovo>=0.13.0` because `close calculate` and `close report` reuse
+`verovo_healthcheck.canonical_finance` instead of vendoring a second engine;
+that is a Verovo dependency, not a third-party library. The rest of the ledger
+uses only the Python standard library; Playwright remains optional for browser
+capture. See [buyer-ledger/README.md](buyer-ledger/README.md).
+
 ## Re-count a bill in 60 seconds
 
 Install the current CLI release:
