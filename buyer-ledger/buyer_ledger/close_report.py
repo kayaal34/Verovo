@@ -177,6 +177,45 @@ def _canonical_snapshot(case_dir: Path) -> Dict[str, Any]:
     return {"files": files, "fingerprint": _fingerprint(files)}
 
 
+def _ensure_unsigned(case_dir: Path) -> None:
+    if (Path(case_dir) / "signoff.json").is_file():
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "this period is already signed; report/calculation/review must not "
+            "be rebuilt in place — create a new revision with close revise")
+
+
+def _input_hashes(case_dir: Path) -> Dict[str, Any]:
+    canonical = _canonical_dir(case_dir)
+    return {
+        "period_job_sha256": _sha_file(Path(case_dir) / "period-job.json"),
+        "mapping_confirmed_sha256": _sha_file(
+            Path(case_dir) / "intake" / "mapping-confirmed.json"),
+        "rule_map_sha256": _sha_file(canonical / "rule-map.json"),
+    }
+
+
+def _verify_job_against_manifest(job: Dict[str, Any],
+                                 manifest: Dict[str, Any]) -> None:
+    checks = (
+        ("job_id", job.get("job_id"), manifest.get("case_id")),
+        ("vendor", job.get("vendor"), manifest.get("vendor")),
+        ("account", job.get("account"), manifest.get("account_ref")),
+        ("currency", job.get("currency"), manifest.get("currency")),
+        ("period.from", job["period"].get("from"),
+         (manifest.get("period") or {}).get("start")),
+        ("period.to", job["period"].get("to"),
+         (manifest.get("period") or {}).get("end")),
+    )
+    for label, job_value, manifest_value in checks:
+        if _text(job_value) != _text(manifest_value):
+            raise CloseError(
+                "STALE_SOURCE",
+                "period-job %s (%r) no longer matches canonical (%r); re-ingest "
+                "and re-confirm before reporting"
+                % (label, job_value, manifest_value))
+
+
 def _load_canonical_finance():
     try:
         from verovo_healthcheck import canonical_finance
@@ -255,6 +294,7 @@ def _calculation_projection(outcome: Dict[str, Any]) -> Dict[str, Any]:
         "verdicts": {name: trim_conclusions(name) for name in VERDICT_NAMES},
         "intake": {
             "reconciliation": intake.get("reconciliation"),
+            "reconciliation_rows": intake.get("reconciliation_rows"),
             "counts": intake.get("counts"),
             "duplicates": intake.get("duplicates"),
             "charge_amount_mismatches": intake.get("charge_amount_mismatches"),
@@ -329,16 +369,25 @@ def _blocked_outcome(job: Dict[str, Any], manifest: Dict[str, Any]) -> Dict[str,
 def calculate(case_dir: Path) -> Dict[str, Any]:
     """Run the existing canonical chain and persist a replayable calculation."""
     case_dir = Path(case_dir)
+    _ensure_unsigned(case_dir)
     job = load_period_job(case_dir / "period-job.json")
     confirmed = case_dir / "intake" / "mapping-confirmed.json"
     if not confirmed.is_file():
         raise CloseError("REVIEW_REQUIRED",
                          "the field mapping is not confirmed; nothing can be calculated")
     canonical = _canonical_dir(case_dir)
+    manifest = _read_json(canonical / "manifest.json", "canonical/manifest.json")
+    _verify_job_against_manifest(job, manifest)
+    mapping_hash = _sha_file(confirmed)
+    declared_mapping_hash = _text(manifest.get("mapping_confirmed_sha256"))
+    if declared_mapping_hash and declared_mapping_hash != mapping_hash:
+        raise CloseError(
+            "STALE_SOURCE",
+            "mapping-confirmed.json changed after the canonical bundle was "
+            "generated; re-ingest and re-confirm before reporting")
     snapshot = _canonical_snapshot(case_dir)
     rule_map, rule_hash = _read_rule_map(canonical)
     canonical_finance = _load_canonical_finance()
-    manifest = _read_json(canonical / "manifest.json", "canonical/manifest.json")
     try:
         outcome = canonical_finance.run(canonical)
     except ValueError as exc:
@@ -353,6 +402,7 @@ def calculate(case_dir: Path) -> Dict[str, Any]:
         "calculated_at": _now_iso(),
         "canonical_snapshot": snapshot,
         "rule_map_hash": rule_hash,
+        "input_hashes": _input_hashes(case_dir),
         "rule_versions": _rule_versions(rule_map),
         "code_version": CODE_VERSION,
         "algorithm_versions": dict(ALGORITHM_VERSIONS),
@@ -607,6 +657,8 @@ def _line_reconciliation(outcome: Dict[str, Any], bills: Dict[str, Dict[str, Any
                         conclusions: Dict[str, List[Dict[str, Any]]],
                         findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     rows = []
+    report_currency = _text(
+        (outcome.get("case") or {}).get("currency")).upper()
     for row in outcome["intake_report"].get("reconciliation_rows", []):
         charge_id = _text(row.get("charge_id"))
         raw = bills.get(charge_id, {})
@@ -628,6 +680,8 @@ def _line_reconciliation(outcome: Dict[str, Any], bills: Dict[str, Dict[str, Any
         matched = Decimal("0")
         adjustment = Decimal("0")
         sign_mismatch = False
+        line_currency = _text(
+            row.get("bill_currency") or raw.get("currency")).upper() or None
         if adjustment_type in ("credit", "refund") and adjustment_state \
                 not in APPLIED_STATES:
             classification = "excluded_pending_adjustment"
@@ -654,6 +708,12 @@ def _line_reconciliation(outcome: Dict[str, Any], bills: Dict[str, Dict[str, Any
             classification = "matched_posting" if (
                 amount is not None and matched == amount and amount != 0
             ) else "residual"
+        currency_incomplete = bool(
+            included and (not line_currency
+                          or line_currency != report_currency))
+        if currency_incomplete:
+            classification = "excluded_currency_unknown"
+            included = False
         residual = (amount - matched - adjustment) \
             if included and amount is not None else (
                 Decimal("0") if not included else None)
@@ -667,8 +727,8 @@ def _line_reconciliation(outcome: Dict[str, Any], bills: Dict[str, Dict[str, Any
             "usage_id": row.get("usage_id"),
             "usage_source_ref": row.get("usage_source_ref"),
             "amount": _money(amount),
-            "currency": _text(row.get("bill_currency") or raw.get("currency")).upper()
-            or None,
+            "currency": line_currency,
+            "currency_incomplete": currency_incomplete,
             "quantity": _text(row.get("quantity")) or _text(
                 raw.get("quantity")) or None,
             "unit_price": _text(row.get("unit_price")) or _text(
@@ -731,6 +791,14 @@ def _collect_findings(lines: List[Dict[str, Any]],
 
     for line in lines:
         amount = _dec(line.get("amount"), "line amount")
+        if line.get("currency_incomplete"):
+            add(line, "currency_unknown",
+                "the invoice line has no known period currency; it is excluded "
+                "from USD totals instead of being assumed to be USD",
+                amount, ["unexplained"],
+                "currency evidence for the invoice line", "finance")
+            line["state"] = "unresolved"
+            continue
         if amount is None:
             add(line, "missing_invoice_amount",
                 "the invoice line has no amount; invoice total and open "
@@ -793,7 +861,8 @@ def _collect_findings(lines: List[Dict[str, Any]],
 
 
 def _open_items(lines: List[Dict[str, Any]], findings: List[Dict[str, Any]],
-                outcome: Dict[str, Any], manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
+                outcome: Dict[str, Any], manifest: Dict[str, Any],
+                draft: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     items: List[Dict[str, Any]] = []
     seen = set()
 
@@ -829,6 +898,20 @@ def _open_items(lines: List[Dict[str, Any]], findings: List[Dict[str, Any]],
             "no invoice/bill line is available; invoice_total, matched postings "
             "and the open difference remain unknown rather than zero",
             owner="finance", next_evidence="invoice or bill export for this period")
+
+    for row in ((draft or {}).get("validation") or {}).get("period_outliers", []):
+        if not isinstance(row, dict):
+            continue
+        row_id = _text(row.get("id")) or "outlier"
+        add("period_outlier",
+            "charge %s is outside the half-open period and was excluded from "
+            "invoice_total: %s" % (row_id, _text(row.get("reason"))),
+            line_ref="period:%s" % row_id,
+            amount=row.get("amount"), currency=row.get("currency"),
+            owner="finance",
+            next_evidence="move the row to the correct period or correct its "
+                          "service date; do not book it in this period",
+            evidence_refs=[_text(row.get("source"))])
 
     for finding in findings:
         add(finding["kind"], finding["detail"], line_ref=finding["line_ref"],
@@ -908,6 +991,11 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
     outcome = calculation["outcome"]
     conclusions = outcome.get("evidence_conclusions") or {}
     bills = _read_bills(canonical)
+    draft_path = case_dir / "intake" / "mapping-draft.json"
+    draft = (_read_json(draft_path, "intake/mapping-draft.json")
+             if draft_path.is_file() else None)
+    period_outliers = ((draft or {}).get("validation") or {}).get(
+        "period_outliers", [])
 
     # First pass: line classifications and finding references.
     draft_lines = _line_reconciliation(outcome, bills, conclusions, [])
@@ -917,8 +1005,26 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
     lines = _line_reconciliation(outcome, bills, conclusions, findings)
 
     included = [line for line in lines if line["included_in_invoice_total"]]
-    has_amounts = bool(lines) and not any(line["amount"] is None
-                                         for line in included)
+    currency_incomplete = any(line.get("currency_incomplete") for line in lines)
+    amount_incomplete = any(line["amount"] is None for line in included)
+    has_amounts = bool(lines) and not amount_incomplete and not currency_incomplete
+    case_open_kinds = {
+        _text(item.get("kind"))
+        for item in (outcome.get("case") or {}).get("open_items", [])
+        if isinstance(item, dict)}
+    missing_charge = "missing_charge_id" in case_open_kinds
+    duplicate_rows = bool((outcome.get("intake_report") or {}).get("duplicates"))
+    invoice_notes = []
+    if missing_charge:
+        invoice_notes.append("invoice row(s) without charge_id were not booked")
+    if duplicate_rows:
+        invoice_notes.append("duplicate invoice representations were not counted twice")
+    if period_outliers:
+        invoice_notes.append("out-of-period rows were excluded from the period total")
+    if currency_incomplete:
+        invoice_notes.append("unknown-currency rows were excluded from the USD total")
+    if amount_incomplete:
+        invoice_notes.append("invoice rows with no amount leave the total unknown")
     if has_amounts:
         invoice_total = sum((_dec(line["amount"], "line amount") or Decimal("0")
                              for line in included), Decimal("0"))
@@ -946,14 +1052,24 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
                                or Decimal("0") for line in lines
                                if line["classification"] ==
                                "excluded_pending_adjustment"), Decimal("0"))
-        rule_repriced = sum((_dec(line["expected_amount"], "expected")
-                             or Decimal("0") for line in lines
-                             if line.get("expected_amount") not in (None, "")),
-                            Decimal("0"))
-        rule_difference = sum((_dec(line["rule_difference"], "rule difference")
-                               or Decimal("0") for line in lines
-                               if line.get("rule_difference") not in (None, "")),
-                              Decimal("0"))
+        rule_lines = [line for line in included
+                      if line["classification"] != "explained_adjustment"]
+        rule_missing = [line for line in rule_lines
+                        if line.get("expected_amount") in (None, "")]
+        if rule_lines and not rule_missing:
+            rule_repriced = sum(
+                (_dec(line["expected_amount"], "expected") or Decimal("0")
+                 for line in rule_lines), Decimal("0"))
+            rule_difference = sum(
+                (_dec(line["rule_difference"], "rule difference") or Decimal("0")
+                 for line in rule_lines if line.get("rule_difference") not in
+                 (None, "")), Decimal("0"))
+        else:
+            rule_repriced = None
+            rule_difference = None
+        rule_missing_lines = [line["line_ref"] for line in rule_missing]
+        rule_status = ("complete" if rule_lines and not rule_missing else
+                       "partial" if rule_missing else "not_applicable")
         buyer_independent = sum(
             (_dec(line["matched_amount"], "buyer matched") or Decimal("0")
              for line in included if line.get("buyer_verified") == "PASS"),
@@ -968,6 +1084,8 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
         tax_applied = credits_applied = credits_pending = None
         rule_repriced = rule_difference = buyer_independent = None
         negative_included = False
+        rule_missing_lines = []
+        rule_status = "unknown"
 
     amount_coverage = None
     coverage_status = "comparable"
@@ -978,8 +1096,13 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
                            "the amount denominator remain unknown, not zero")
     elif not has_amounts:
         coverage_status = "not_comparable"
-        coverage_reason = ("one or more invoice lines have no amount; the total is "
-                           "unknown, not the sum of the known lines")
+        if currency_incomplete:
+            coverage_reason = ("one or more invoice lines have no known period "
+                               "currency; the total is unknown, not the sum of "
+                               "the known lines")
+        else:
+            coverage_reason = ("one or more invoice lines have no amount; the total "
+                               "is unknown, not the sum of the known lines")
     elif invoice_total <= 0 or negative_included:
         coverage_status = "not_comparable"
         coverage_reason = ("negative credit/tax or a non-positive invoice total makes "
@@ -1053,7 +1176,7 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
                          "not an incomplete axis"]),
     }
 
-    open_items = _open_items(lines, findings, outcome, manifest)
+    open_items = _open_items(lines, findings, outcome, manifest, draft)
     review_projection = _review_projection(review, open_items)
     economics = outcome.get("economics")
     if economics is None:
@@ -1132,8 +1255,14 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
         "amounts": {
             "currency": job["currency"],
             "invoice_total": _money(invoice_total),
+            "invoice_total_status": (
+                "unknown" if not has_amounts else
+                "partial" if invoice_notes else "complete"),
+            "invoice_total_notes": invoice_notes,
             "rule_repriced": _money(rule_repriced),
             "rule_repriced_subtotal": _money(rule_repriced),
+            "rule_repricing_status": rule_status,
+            "rule_repricing_missing_lines": rule_missing_lines,
             "rule_repricing_difference": _money(rule_difference),
             "matched_postings": _money(matched_postings),
             "distinct_source_reconciled": _money(matched_postings),
@@ -1340,7 +1469,27 @@ def _write_csv(path: Path, fieldnames: List[str], rows: List[Dict[str, Any]],
 def build_report(case_dir: Path) -> Dict[str, Any]:
     """Build the six report artifacts from a current calculation."""
     case_dir = Path(case_dir)
+    _ensure_unsigned(case_dir)
     calculation = load_calculation(case_dir)
+    expected_calculation = _fingerprint(
+        _calculation_projection(calculation.get("outcome") or {}))
+    if calculation.get("calculation_fingerprint") != expected_calculation:
+        raise CloseError(
+            "STALE_SOURCE",
+            "calculation.json no longer matches its own fingerprint; run close "
+            "calculate again instead of trusting an edited calculation")
+    stored_inputs = calculation.get("input_hashes") or {}
+    current_inputs = _input_hashes(case_dir)
+    if not stored_inputs:
+        raise CloseError(
+            "STALE_SOURCE",
+            "calculation.json has no input hashes; run close calculate again")
+    for key, value in current_inputs.items():
+        if stored_inputs.get(key) != value:
+            raise CloseError(
+                "STALE_SOURCE",
+                "%s changed after calculation; run close calculate again before "
+                "reporting" % key)
     snapshot = _canonical_snapshot(case_dir)
     if snapshot["fingerprint"] != calculation["canonical_snapshot"]["fingerprint"]:
         raise CloseError("STALE_SOURCE",
@@ -1434,6 +1583,7 @@ def record_review(case_dir: Path, *, reviewer: str, approved_scope: str = "",
                   reservations: List[str] = None, next_review: str = "") -> Dict[str, Any]:
     """Record a named human review; never promote unresolved items to closed."""
     case_dir = Path(case_dir)
+    _ensure_unsigned(case_dir)
     reviewer = _text(reviewer)
     if not reviewer:
         raise CloseError("INPUT_REQUIRED",

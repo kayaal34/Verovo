@@ -345,7 +345,6 @@ def intake(bundle: Path) -> Dict[str, Any]:
                 })
                 for field in task_economics.EVIDENCE_FIELDS:
                     charge_row["usage_" + field] = matched_usage.get(field)
-            reconciliation_rows.append(charge_row)
             if charge_id in seen_bill_charges:
                 report["duplicates"].append({"charge_id": charge_id, "source": path.name})
                 _open_item(open_items, "duplicate_charge",
@@ -354,6 +353,10 @@ def intake(bundle: Path) -> Dict[str, Any]:
                 bill_total_complete = file_complete = False
                 continue
             seen_bill_charges.add(charge_id)
+            # Only the booked representation reaches reconciliation rows; a
+            # duplicate must not become a second report line with the first
+            # row's amount.
+            reconciliation_rows.append(charge_row)
             if row.get("amount") in (None, ""):
                 _open_item(open_items, "missing_amount",
                            "bill %s has no amount; amount remains unknown" % charge_id,

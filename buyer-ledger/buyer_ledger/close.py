@@ -357,9 +357,16 @@ def init_case(case_dir: Path, *, job_path: Path = None, job_id: str = "",
 # ---------------------------------------------------------------------------
 
 def _resolve_inside(bundle: Path, relative: str, what: str) -> Path:
-    if Path(relative).is_absolute() or ".." in Path(relative).parts:
+    raw = str(relative)
+    # V-14 is cross-platform: a POSIX host must not accept a Windows drive,
+    # UNC path, or backslash traversal as an ordinary bundle filename.
+    normalized = raw.replace("\\", "/")
+    windows_absolute = bool(re.match(r"^[A-Za-z]:", raw)) or raw.startswith("\\\\")
+    if windows_absolute or ".." in normalized.split("/"):
         raise CloseError("POLICY_DENIED", "%s escapes the bundle: %s" % (what, relative))
-    resolved = (bundle / relative).resolve()
+    if Path(raw).is_absolute() or ".." in Path(raw).parts:
+        raise CloseError("POLICY_DENIED", "%s escapes the bundle: %s" % (what, relative))
+    resolved = (bundle / raw).resolve()
     try:
         resolved.relative_to(bundle.resolve())
     except ValueError as exc:
@@ -754,6 +761,10 @@ def ingest(case_dir: Path, bundle: Path = None) -> Dict[str, Any]:
                 if when is not None and not (start <= when < end):
                     period_outliers.append({
                         "id": row_id or str(index), "source": table["relative"],
+                        "role": role,
+                        "amount": _cell(row, mapping.get(
+                            "amount" if role == "bills" else "cost")),
+                        "currency": currency,
                         "date": when.isoformat(),
                         "reason": "%s is outside the half-open period [%s, %s)"
                                   % (when.isoformat(), job["period"]["from"],
@@ -1090,6 +1101,8 @@ def generate_canonical(case_dir: Path,
         raise CloseError(blocking, rule_check["violations"][0]["detail"])
 
     tables: Dict[str, List[Dict[str, Any]]] = {}
+    start = _iso_date(job["period"]["from"], "period.from")
+    end = _iso_date(job["period"]["to"], "period.to")
     for entry in job["sources"]:
         role = entry["role"]
         if ROLES[role]["document"]:
@@ -1097,10 +1110,19 @@ def generate_canonical(case_dir: Path,
         relative = Path(entry["path"]).as_posix()
         path = _resolve_inside(bundle_root, relative, "source %s" % role)
         columns, rows, fmt = _parse_table(path, allow_empty=(role == "outcomes"))
+        proposal = _propose_columns(role, columns)
+        if role in ("bills", "usage"):
+            date_column = proposal["mapping"].get("date")
+            if date_column:
+                # Half-open [from, to): out-of-period rows are reported as open
+                # items but never enter the canonical ledger or invoice total.
+                rows = [row for row in rows
+                        if _parse_date_loose(_cell(row, date_column)) is None
+                        or start <= _parse_date_loose(_cell(row, date_column)) < end]
         tables.setdefault(role, []).append({
             "entry": entry, "path": path, "relative": relative,
             "columns": columns, "rows": rows,
-            "proposal": _propose_columns(role, columns), "format": fmt,
+            "proposal": proposal, "format": fmt,
         })
 
     canonical = case_dir / "canonical"
@@ -1187,6 +1209,10 @@ def generate_canonical(case_dir: Path,
         (canonical / "rule-map.json").write_text(
             json.dumps({"schema_version": "1.0", "rules": []}, indent=2) + "\n",
             encoding="utf-8")
+    confirmed_path = case_dir / "intake" / "mapping-confirmed.json"
+    if confirmed_path.is_file():
+        manifest["mapping_confirmed_sha256"] = _sha256_bytes(
+            confirmed_path.read_bytes())
     (canonical / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return canonical
