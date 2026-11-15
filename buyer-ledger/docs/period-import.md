@@ -2,8 +2,9 @@
 
 > **状态：V-02 合成 fixture 验收。** 本页描述导入层：扫描本地账期包、提议
 > 字段映射、由人确认后生成 Period Intake 可消费的 canonical bundle。
-> `calculate` / `report` / `review` 已在 V-03 接入；`revise` / `signoff` 属于
-> V-04，仍是显式失败（exit 2）的 stub，不会伪造结果。
+> `calculate` / `report` / `review` 已在 V-03 接入；`revise` / `signoff` 已在
+> V-04 接入为独立 revision 与署名 sidecar，见
+> [period-revisions.md](period-revisions.md)。
 
 ```bash
 cd buyer-ledger
@@ -69,7 +70,8 @@ CLI 生成同一份 `period-job.json`。
 | `close status CASE`（`close show` 同） | 只读 BuyerCloseCase 投影：四完成轴、review queue、missing inputs、C-01 状态 |
 | `close calculate` / `close report` | V-03：运行既有 canonical 重算链并生成六份月结报告对象 |
 | `close review` | V-03：记录署名复核；不关闭未决项、不签核、不授权付款 |
-| `close revise/signoff` | V-04 stub：exit 2，错误信息点名 V-04 |
+| `close revise` | V-04：追加新的独立 revision；同输入 idempotent，不覆盖旧版本 |
+| `close signoff` | V-04：对指定 revision 记录署名 scope/source/rule 指纹；不是付款授权 |
 
 目录结构：
 
@@ -151,4 +153,5 @@ CASE/
 - 不自动签核、不判定付款、不发起供应商争议；
 - 不把 vendor agreement 当买方独立验证，不把数值一致当计费正确；
 - V-03 的月结报告与审核门禁见 [close-report.md](close-report.md)；
-  `revise` / `signoff`（V-04）尚未实现。
+  V-04 的追加式 revision、delta 与 signoff 见
+  [period-revisions.md](period-revisions.md)。

@@ -17,12 +17,17 @@ canonical chain, `close report` emits six replayable report objects, and
 `close review` records a named reviewer without closing unresolved items,
 signing off the period or authorizing payment.
 
+V-04 (versioned close and later adjustments): the root period is snapshotted as
+r1; `close revise` appends an independently recalculated r2/r3 with a
+PeriodRevision record and a delta, and `close signoff` binds a named decision
+to one revision's source/rule fingerprints without rewriting older reports or
+authorizing payment.
+
 ### Added
 
 - **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `calculate` /
-  `report` / `review` / `status` (and `show` as the same read-only projection),
-  plus loud V-04 (`revise`, `signoff`) stubs that exit 2 instead of faking
-  results.
+  `report` / `review` / `revise` / `signoff` / `status` (and `show` as the same
+  read-only projection); no later-ticket stub remains.
 - **`verovo.period-job/1` import**: half-open `[from, to)`, one
   vendor/account/currency, IANA timezone, UTF-8/BOM handling, per-file SHA-256,
   path/symlink containment at ingest, duplicate-id diagnostics, four coverage
@@ -59,6 +64,21 @@ signing off the period or authorizing payment.
 - **Named-reviewer gate**: `close review --by ...` records reviewer, time,
   scope, reservations and next review; missing reviewer is
   `INPUT_REQUIRED`, and unresolved items are never promoted to closed.
+- **Append-only PeriodRevision (V-04)**: the first revision snapshots the root
+  to `revisions/r1` and every later version gets its own `rN/` directory with
+  `period_job_id`, `revision_id`, `parent_revision_id`,
+  `input_snapshot_hash`, `rule_map_hash`, `source_added/removed/changed`,
+  `reviewer`, `closed_at` and `status`. Same input is idempotent; root
+  reports/canonical are refused for in-place rebuild once a revision exists.
+- **Three-way revision delta**: `delta.json` separates amount/cause/axis
+  changes, newly available evidence, and applied versus merely issued credit.
+  Issued credit stays open exposure with zero realized savings; applied credit
+  reduces the amount due and is still not reported as savings.
+- **Revision signoff**: `close signoff --by ...` records the case/revision,
+  scope hash, source hashes, rule-map hash, reviewer, decision time,
+  reservations and unresolved items; a new revision never inherits the old
+  signoff, missing reviewer is `INPUT_REQUIRED`, and the result is explicitly
+  not payment authorization.
 
 ### Fixed
 
@@ -90,10 +110,12 @@ signing off the period or authorizing payment.
 
 ### Verification
 
-- Buyer-ledger: **158 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 30 V-02
+- Buyer-ledger: **167 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 30 V-02
   acceptance tests covering AC V07–V15, BuyerCloseCase and the CLI + 11 V-03
   acceptance tests covering AC V16–V23, the review gate and missing-amount
-  discipline; V-02 and V-03 tests were committed red first).
+  discipline + 9 V-04 acceptance tests covering AC V24–V29, PeriodRevision,
+  append-only signoff and the revise/signoff CLI; V-02/V-03/V-04 tests were
+  committed red first).
 - Healthcheck: **593 tests pass**.
 - Repository root: **59 tests pass**.
 - Python 3.9; synthetic fixtures only; no network calls and no real billing

@@ -478,18 +478,26 @@ def cmd_close_mapping(args):
 
 
 def cmd_close_status(args):
-    print(json.dumps(close_mod.build_case(args.case),
+    from . import close_revision
+    target = close_revision.resolve_case_dir(args.case, args.revision)
+    print(json.dumps(close_mod.build_case(target),
                      ensure_ascii=False, indent=2))
 
 
 def cmd_close_calculate(args):
-    from . import close_report
-    calculation = close_report.calculate(args.case)
+    from . import close_report, close_revision
+    if close_revision.list_revisions(args.case):
+        raise close_mod.CloseError(
+            "REVIEW_REQUIRED",
+            "the root is revision r1 and must stay immutable; create a new "
+            "revision with close revise instead of recalculating it")
+    target = args.case
+    calculation = close_report.calculate(target)
     if args.json:
         with open(args.json, "w", encoding="utf-8") as handle:
             json.dump(calculation, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
-    print("calculation: %s/calculation.json" % args.case)
+    print("calculation: %s/calculation.json" % target)
     print("schema: %s" % calculation["schema"])
     print("canonical fingerprint: %s" % calculation["canonical_snapshot"]["fingerprint"])
     print("axes: %s" % json.dumps(calculation["statuses"], ensure_ascii=False))
@@ -497,9 +505,15 @@ def cmd_close_calculate(args):
 
 
 def cmd_close_report(args):
-    from . import close_report
-    report = close_report.build_report(args.case)
-    print("report dir: %s/report" % args.case)
+    from . import close_report, close_revision
+    if close_revision.list_revisions(args.case):
+        raise close_mod.CloseError(
+            "REVIEW_REQUIRED",
+            "the root is revision r1 and must stay immutable; create a new "
+            "revision with close revise instead of rebuilding its report")
+    target = args.case
+    report = close_report.build_report(target)
+    print("report dir: %s/report" % target)
     for name in ("report.md", "report.json", "line-reconciliation.csv",
                  "review-queue.csv", "evidence-index.json", "manifest.json"):
         print("  %s" % name)
@@ -513,9 +527,15 @@ def cmd_close_report(args):
 
 
 def cmd_close_review(args):
-    from . import close_report
+    from . import close_report, close_revision
+    if close_revision.list_revisions(args.case):
+        raise close_mod.CloseError(
+            "REVIEW_REQUIRED",
+            "the root is revision r1 and must stay immutable; record a "
+            "reference review before revisions or sign off a revision")
+    target = args.case
     review = close_report.record_review(
-        args.case, reviewer=args.by, approved_scope=args.scope,
+        target, reviewer=args.by, approved_scope=args.scope,
         reservations=args.reservation, next_review=args.next_review)
     print("reviewed by %s (%s)" % (review["reviewer"], review["attestation"]))
     print("scope: %s" % (review["approved_scope"] or "—"))
@@ -525,8 +545,46 @@ def cmd_close_review(args):
     print("payment authorization: %s" % review["payment_authorization"])
 
 
-def cmd_close_stub(args):
-    close_mod.stub_command(args.close_command)
+def cmd_close_revise(args):
+    from . import close_revision
+    result = close_revision.revise(
+        args.case, bundle=args.bundle or None, source=args.source or None,
+        role=args.role, reason=args.reason, reviewer=args.review_by,
+        control_domains=_parse_control_domains(args.control_domain))
+    revision = result["revision"]
+    print("revision: %s (parent %s)" % (
+        revision["revision_id"], revision["parent_revision_id"]))
+    print("idempotent: %s" % result["idempotent"])
+    print("status: %s" % revision["status"])
+    print("sources: added=%s removed=%s changed=%s" % (
+        revision["source_added"], revision["source_removed"],
+        revision["source_changed"]))
+    if result.get("delta"):
+        amounts = result["delta"]["amounts"]
+        print("delta invoice_total: %s -> %s (%s)" % (
+            amounts["invoice_total"]["before"], amounts["invoice_total"]["after"],
+            amounts["invoice_total"]["delta"]))
+        print("delta axes: %s" % (result["delta"]["changed_axes"] or "none"))
+        credits = result["delta"]["credits"]
+        print("credits applied delta=%s pending delta=%s realized delta=%s"
+              % (credits["applied"]["delta"], credits["pending"]["delta"],
+                 credits["realized"]["delta"]))
+    if result.get("path"):
+        print("path: %s" % result["path"])
+
+
+def cmd_close_signoff(args):
+    from . import close_revision
+    record = close_revision.signoff(
+        args.case, reviewer=args.by, approved_scope=args.scope,
+        reservations=args.reservation, note=args.note,
+        revision_id=args.revision)
+    print("signed revision %s by %s (%s)"
+          % (record["revision_id"], record["reviewer"], record["state"]))
+    print("unresolved items: %d (not closed by signoff)"
+          % len(record["unresolved_items"]))
+    print("payment authorization: %s" % record["payment_authorization"])
+    print("scope hash: %s" % record["scope_hash"])
 
 
 def build_parser():
@@ -680,6 +738,7 @@ def build_parser():
             ("show", "同 status：只读 BuyerCloseCase 投影")):
         sp = close_sub.add_parser(name, help=help_text)
         sp.add_argument("case")
+        sp.add_argument("--revision", default="", help="指定 revision；默认最新")
         sp.set_defaults(func=cmd_close_status)
 
     sp = close_sub.add_parser("calculate", help="对 canonical bundle 运行既有重算链（V-03）")
@@ -703,15 +762,26 @@ def build_parser():
     sp.add_argument("--next-review", default="", help="下次复核日期 YYYY-MM-DD")
     sp.set_defaults(func=cmd_close_review)
 
-    for name in ("revise", "signoff"):
-        ticket = close_mod.LATER_TICKET_COMMANDS[name]
-        sp = close_sub.add_parser(name, help="%s 中实现（V-03 只拒绝，不伪造）" % ticket)
-        sp.add_argument("case")
-        if name == "revise":
-            sp.add_argument("--source", required=True)
-        if name == "signoff":
-            sp.add_argument("--by", required=True)
-        sp.set_defaults(func=cmd_close_stub)
+    sp = close_sub.add_parser("revise", help="从新来源生成独立 revision（V-04）")
+    sp.add_argument("case")
+    sp.add_argument("--bundle", default="", help="完整的新账期包目录")
+    sp.add_argument("--source", default="", help="替换单个来源文件")
+    sp.add_argument("--role", default="", help="--source 对应的 role")
+    sp.add_argument("--reason", default="", help="修订原因")
+    sp.add_argument("--review-by", default="", help="确认新映射的人；缺失即拒绝")
+    sp.add_argument("--control-domain", action="append", default=[],
+                    metavar="ROLE=VENDOR|BUYER")
+    sp.set_defaults(func=cmd_close_revise)
+
+    sp = close_sub.add_parser("signoff", help="对指定 revision 记录署名签核（V-04）")
+    sp.add_argument("case")
+    sp.add_argument("--revision", default="", help="指定 revision；默认最新")
+    sp.add_argument("--by", default="", help="签核人；缺失即 INPUT_REQUIRED")
+    sp.add_argument("--scope", default="", help="签核范围")
+    sp.add_argument("--reservation", action="append", default=[],
+                    help="保留意见，可重复")
+    sp.add_argument("--note", default="")
+    sp.set_defaults(func=cmd_close_signoff)
     return p
 
 

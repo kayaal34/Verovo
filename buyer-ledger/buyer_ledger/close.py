@@ -27,8 +27,9 @@ Discipline (AC V07-V15, V30, V34):
 - with a single invoice the case still returns a partial source check and
   ``Invoice Reconciled`` stays UNPROVABLE; the missing-input list names gaps,
   never amounts;
-- errors use the frozen C-01 code registry; ``calculate``/``report`` and
-  ``revise``/``signoff`` are V-03/V-04 stubs that fail loudly.
+- errors use the frozen C-01 code registry; ``calculate``/``report``/
+  ``review`` (V-03) and ``revise``/``signoff`` (V-04) are orchestration
+  wrappers, not a second financial engine.
 
 No network access, no provider calls, no booking of anything.
 """
@@ -63,9 +64,9 @@ INVOICE_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".txt"}
 TABLE_SUFFIXES = {".csv", ".tsv", ".jsonl"}
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
 
-# Commands that exist only as loud stubs; V-03 owns calculate/report, V-04
-# owns revisions and signoff.
-LATER_TICKET_COMMANDS = {"revise": "V-04", "signoff": "V-04"}
+# No close subcommand is a later-ticket stub anymore; V-04 implements the last
+# pair. The empty registry is kept as a machine-readable compatibility marker.
+LATER_TICKET_COMMANDS = {}
 
 # role -> canonical Period Intake description. ``required`` columns are the
 # minimum a reviewer must see mapped (or explicitly approve as a gap); the
@@ -1213,6 +1214,8 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
     calculation_path = case_dir / "calculation.json"
     report_path = case_dir / "report" / "report.json"
     review_path = case_dir / "review.json"
+    signoff_path = case_dir / "signoff.json"
+    revision_path = case_dir / "revision.json"
     has_scan = scan_path.is_file()
     draft = json.loads(draft_path.read_text(encoding="utf-8")) if draft_path.is_file() else None
     confirmation = (json.loads(confirmed_path.read_text(encoding="utf-8"))
@@ -1224,6 +1227,10 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
               if report_path.is_file() else None)
     review = (json.loads(review_path.read_text(encoding="utf-8"))
               if review_path.is_file() else None)
+    signoff = (json.loads(signoff_path.read_text(encoding="utf-8"))
+               if signoff_path.is_file() else None)
+    revision = (json.loads(revision_path.read_text(encoding="utf-8"))
+                if revision_path.is_file() else None)
     confirmed = confirmation is not None
 
     snapshot_refs: List[Dict[str, Any]] = []
@@ -1405,7 +1412,14 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
                         "requires_re_review_next_period": True})
 
     if report is not None:
-        if review is not None:
+        if signoff is not None:
+            task_state, blocked_code = "delivered", None
+            next_actor = "human_reviewer"
+            next_required = {
+                "action": "period signed for this revision; a new source must "
+                          "create a new revision (V-04)",
+                "ticket": "V-04"}
+        elif review is not None:
             task_state, blocked_code = "delivered", None
             next_actor = "human_reviewer"
             next_required = {
@@ -1414,11 +1428,19 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
         else:
             task_state, blocked_code = "needs_review", "REVIEW_REQUIRED"
             next_actor = "human_reviewer"
-            next_required = {
-                "action": "review the month-end report and record a named reviewer",
-                "report": "close review %s --by <reviewer> --scope <scope>"
-                          % case_dir,
-                "ticket": "V-03"}
+            if revision is not None:
+                next_required = {
+                    "action": "review and sign off this revision",
+                    "signoff": "close signoff %s --revision %s --by <reviewer> "
+                               "--scope <scope>" % (case_dir.parent.parent,
+                                                    revision.get("revision_id")),
+                    "ticket": "V-04"}
+            else:
+                next_required = {
+                    "action": "review the month-end report and record a named reviewer",
+                    "report": "close review %s --by <reviewer> --scope <scope>"
+                              % case_dir,
+                    "ticket": "V-03"}
     elif calculation is not None:
         task_state, blocked_code = "ready", None
         next_actor = "verovo_cli"
@@ -1468,7 +1490,7 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
 
     state_files = [case_dir / "period-job.json", scan_path, draft_path,
                    confirmed_path, canonical_manifest, calculation_path,
-                   report_path, review_path]
+                   report_path, review_path, signoff_path, revision_path]
     return {
         "schema": BUYER_CLOSE_CASE_SCHEMA,
         "read_only": True,
@@ -1503,12 +1525,15 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
         },
         "review_flow": {
             "review_queue": review_queue,
-            "assigned_reviewer": ((review or {}).get("reviewer")
+            "assigned_reviewer": ((signoff or {}).get("reviewer")
+                                  or (review or {}).get("reviewer")
                                   or (confirmation or {}).get("confirmed_by")),
-            "approved_scope": ((review or {}).get("approved_scope")
+            "approved_scope": ((signoff or {}).get("approved_scope")
+                               or (review or {}).get("approved_scope")
                                or (confirmation or {}).get("sources")),
             "outstanding_requests": missing_inputs,
-            "signoff_revision": ((review or {}).get("signoff") or {}).get("state"),
+            "signoff_revision": ((signoff or {}).get("state")
+                                 or ((review or {}).get("signoff") or {}).get("state")),
         },
         "history": {
             "previous_period_ref": None,
@@ -1531,13 +1556,3 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
         "boundary": ("read-only projection of the close case; it never writes back into "
                      "canonical structures and no verdict here authorizes payment"),
     }
-
-
-def stub_command(command: str) -> None:
-    """V-04 commands refuse loudly instead of being half-implemented."""
-    ticket = LATER_TICKET_COMMANDS[command]
-    raise CloseError(
-        "UNSUPPORTED_SCOPE",
-        "'close %s' is implemented in ticket %s; V-03 delivers init/ingest/"
-        "mapping/calculate/report/review/status and refuses to fake revisions "
-        "or signoff" % (command, ticket))

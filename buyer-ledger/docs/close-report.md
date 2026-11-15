@@ -2,7 +2,7 @@
 
 > **状态：V-03 合成 fixture 验收。** 报告接在 V-02 canonical case 上，复用
 > 既有 `canonical_finance` → `period_intake` → `task_economics` 链，不新建
-> 第二套对账引擎。`revise` / `signoff` 仍属 V-04；V-03 的 `review` 只记录
+> 第二套对账引擎。`revise` / `signoff` 见 V-04 的 period-revisions 文档；V-03 的 `review` 只记录
 > 署名复核，不签核账期、不授权付款。
 
 ```bash

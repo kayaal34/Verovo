@@ -27,7 +27,7 @@
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 当前 158 项测试
+python3 -m unittest discover -s tests -t .     # 当前 167 项测试
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium
@@ -98,10 +98,6 @@ $B close review ./close-2026-10 --by finance-reviewer \
   --scope "read report and reserve on credit" \
   --reservation "credit note not applied" \
   --next-review 2026-11-30
-
-# V-04 尚未实现：显式 exit 2 并点名工单，不伪造结果
-$B close revise ./close-2026-10 --source revised.csv
-$B close signoff ./close-2026-10 --by c
 ```
 
 - 六份对象：`report.md`、`report.json`、`line-reconciliation.csv`、
@@ -115,6 +111,36 @@ $B close signoff ./close-2026-10 --by c
 - 负 credit、正 tax、未应用退款不报 realized savings；未应用项是 open
   exposure。缺少 invoice 行时金额是 `null`，不是 `0`。
 - 详细说明见 [docs/close-report.md](docs/close-report.md)。
+
+## 版本化月结与后续调整（V-04）
+
+每个版本独立重算，根目录是 r1；`revise` 快照出 `revisions/r1` 后只追加
+`r2/r3/...`，已签核的 canonical 与报告不被覆盖。`signoff` 只对指定版本的
+指纹署名，不是付款授权，也不关闭 unresolved items。
+
+```bash
+$B close revise ./close-2026-10 --bundle ./bundle-v2 \
+  --review-by finance --reason "vendor revision"
+$B close revise ./close-2026-10 --source ./credit-note.csv --role bills \
+  --review-by finance --reason "credit note issued"
+$B close signoff ./close-2026-10 --revision r2 \
+  --by buyer-controller --scope "accept v2 with open credit" \
+  --reservation "credit not applied"
+$B close status ./close-2026-10                # 默认最新 revision
+$B close status ./close-2026-10 --revision r1
+```
+
+- `PeriodRevision` 记录 `period_job_id`、`revision_id`、`parent_revision_id`、
+  `input_snapshot_hash`、`rule_map_hash`、`source_added/removed/changed`、
+  `reviewer`、`closed_at`、`status`。
+- 同输入 `revise` 直接返回父版本（`idempotent`），不生成新版本；同来源同路径
+  的新内容只按新版本归集，不叠加旧版本。
+- `delta` 分栏显示金额/原因/完成轴变化、新证据、已应用 credit 与仅发出未应用
+  credit；issued credit 不计 realized，applied credit 减少 amount due 但仍
+  不算 savings。
+- 签核要求 `--by`，记录 scope/source/rule 指纹；无署名不产生 signoff，未决
+  项不会被自动改成 closed。详细说明见
+  [docs/period-revisions.md](docs/period-revisions.md)。
 
 ## 文件导入与 Agent 首次适配
 
@@ -234,7 +260,7 @@ $B fetch --recipe recipe.json --period 2026-10 \
 
 | 项目 | 状态 |
 |---|---|
-| 158 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界、账期包导入/字段映射与可签核月结报告 |
+| 167 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界、账期包导入/字段映射、可签核月结报告与追加式 revision/signoff |
 | 合成 CSV 的 CLI 导入→复算→对账→报告 | ✅ 已端到端运行，重复导入幂等 |
 | 26 个工具的账单/计量维度编目 | ✅ 目录与未知 provider 披露已测试；不代表已接通 |
 | CDP loopback 附着、下载与自动分析 | ✅ 本机 Chrome 156 + 本地 HTTPS 合成账单：下载→入账→`--analyze` 出报告；未做真实平台账单后台验收 |
