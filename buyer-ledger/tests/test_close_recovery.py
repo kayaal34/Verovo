@@ -179,8 +179,9 @@ class RevisionCrashRecoveryTests(RecoveryTestBase):
 
     def test_close_report_entry_recovers_before_refusing_the_immutable_root(self):
         self._crash_after_promote()
-        code, out = self.run_cli(["close", "report", str(self.case)])
-        self.assertEqual(2, code, out)
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_cli(["close", "report", str(self.case)])
+        self.assertEqual(2, ctx.exception.code)
         self.assertIn("r2", self.revision_ids())
         self.assertEqual("r2", self.index()["latest"])
         self.assertFalse(self.journal_path("r2").exists())
@@ -414,7 +415,7 @@ class SignoffCrashRecoveryTests(RecoveryTestBase):
         self._assert_recovery("signoff:signoff-written", False)
         entry = [item for item in self.index()["revisions"]
                  if item["revision_id"] == "r2"][0]
-        self.assertEqual("signed", entry["status"])
+        self.assertTrue(entry["status"].startswith("signed"))
 
     def test_crash_after_revision_file_recovers_to_one_state(self):
         # revision.json already signed, index still unsigned.

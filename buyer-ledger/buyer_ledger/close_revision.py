@@ -17,7 +17,10 @@ The delta separates three things that are easy to conflate:
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import re
 import shutil
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -33,7 +36,11 @@ REVISION_SCHEMA = "verovo.period-revision/1"
 DELTA_SCHEMA = "verovo.period-revision-delta/1"
 SIGNOFF_SCHEMA = "verovo.close-signoff/1"
 INDEX_SCHEMA = "verovo.period-revision-index/1"
+JOURNAL_SCHEMA = "verovo.period-revision-journal/1"
 REVISION_DIR = "revisions"
+JOURNAL_PREFIX = ".journal-"
+STAGING_PREFIX = ".staging-"
+REVISION_ID_RE = re.compile(r"^r\d+$")
 
 AMOUNT_KEYS = (
     "invoice_total", "rule_repriced", "matched_postings",
@@ -104,10 +111,6 @@ def _load_index(case_dir: Path) -> Dict[str, Any]:
     return data
 
 
-def _write_index(case_dir: Path, index: Dict[str, Any]) -> None:
-    _write_json(_index_path(case_dir), index)
-
-
 def _revision_dir(case_dir: Path, revision_id: str) -> Path:
     return _revisions_dir(case_dir) / revision_id
 
@@ -128,12 +131,14 @@ def _bundle_root(case_dir: Path) -> Optional[Path]:
     return local if local.is_dir() else None
 
 
-def _rewrite_bundle_root(case_dir: Path) -> None:
+def _rewrite_bundle_root(case_dir: Path,
+                         bundle_root: Path = None) -> None:
     scan_path = Path(case_dir) / "intake" / "scan.json"
     if not scan_path.is_file():
         return
     scan = json.loads(scan_path.read_text(encoding="utf-8"))
-    bundle = Path(case_dir) / "bundle"
+    bundle = (Path(bundle_root) if bundle_root is not None
+              else Path(case_dir) / "bundle")
     scan["bundle_root"] = str(bundle)
     _write_json(scan_path, scan)
 
@@ -257,7 +262,771 @@ def _summary(record: Dict[str, Any]) -> Dict[str, Any]:
     return {key: record.get(key) for key in keys}
 
 
+# ---------------------------------------------------------------------------
+# write-ahead journal and recovery
+#
+# A close transaction touches more than one file: a revision directory plus
+# revision.json / delta.json / index.json, or signoff.json plus the revision and
+# index entries.  The journal is fsynced *before* the first externally visible
+# write and lists every path with the SHA-256 the transaction expects.  Readers
+# and writers inspect it before doing anything else: a resumable transaction is
+# completed and reported, a conflict is reported with the completed/pending
+# steps (never silently ignored).
+# ---------------------------------------------------------------------------
+
+class JournalConflict(CloseError):
+    """A journal exists but the on-disk state no longer matches it."""
+
+    def __init__(self, message: str):
+        super().__init__("REVIEW_REQUIRED", message)
+
+
+# Tests replace this with an explicit hook; never a timing signal.
+_CRASH_HOOK = None
+
+
+def _checkpoint(stage: str, info: Dict[str, Any]) -> None:
+    hook = _CRASH_HOOK
+    if hook is not None:
+        hook(stage, info)
+
+
+_CHECKPOINT_STAGES = {
+    ("snapshot", "promote"): "snapshot:promoted",
+    ("snapshot", "record"): "snapshot:built",
+    ("revise", "promote"): "revise:promoted",
+    ("revise", "record"): "revise:record-written",
+    ("revise", "delta"): "revise:delta-written",
+    ("revise", "index"): "revise:indexed",
+    ("signoff", "signoff"): "signoff:signoff-written",
+    ("signoff", "record"): "signoff:revision-written",
+    ("signoff", "index"): "signoff:indexed",
+}
+
+
+def _json_bytes(payload: Any) -> bytes:
+    return (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+
+def _sha_bytes(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _fsync_dir(path: Path) -> None:
+    descriptor = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_tree(root: Path) -> None:
+    root = Path(root)
+    directories = [root]
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            with open(path, "rb") as handle:
+                os.fsync(handle.fileno())
+        elif path.is_dir():
+            directories.append(path)
+    for directory in reversed(directories):
+        _fsync_dir(directory)
+
+
+def _write_bytes_durable(path: Path, raw: bytes) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    with open(temp, "wb") as handle:
+        handle.write(raw)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(str(temp), str(path))
+    _fsync_dir(path.parent)
+
+
+def _write_json_durable(path: Path, payload: Any) -> None:
+    _write_bytes_durable(path, _json_bytes(payload))
+
+
+def _unlink_durable(path: Path) -> None:
+    path = Path(path)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    _fsync_dir(path.parent)
+
+
+def _case_rel(case_dir: Path, path: Path) -> str:
+    return Path(path).relative_to(Path(case_dir)).as_posix()
+
+
+def _journal_path(case_dir: Path, revision_id: str) -> Path:
+    return _revisions_dir(case_dir) / (JOURNAL_PREFIX + revision_id + ".json")
+
+
+def _journal_paths(case_dir: Path) -> List[Path]:
+    root = _revisions_dir(case_dir)
+    if not root.is_dir():
+        return []
+    return sorted(path for path in root.glob(JOURNAL_PREFIX + "*.json")
+                  if path.is_file())
+
+
+def _revision_id_from_journal(path: Path) -> str:
+    name = path.name
+    if name.startswith(JOURNAL_PREFIX) and name.endswith(".json"):
+        return name[len(JOURNAL_PREFIX):-len(".json")]
+    return ""
+
+
+def _write_descriptor(case_dir: Path, step: str, path: Path, payload: Any,
+                      before: Any = None) -> Dict[str, Any]:
+    raw = _json_bytes(payload)
+    return {
+        "step": step,
+        "path": _case_rel(case_dir, path),
+        "sha256": _sha_bytes(raw),
+        "payload": payload,
+        "before": before,
+        "before_sha256": _sha_bytes(_json_bytes(before))
+        if before is not None else None,
+    }
+
+
+def _tree_hashes(root: Path, prefix: str = "") -> List[Dict[str, Any]]:
+    root = Path(root)
+    prefix = prefix.rstrip("/")
+    entries = []
+    for path in sorted(root.rglob("*")):
+        if path.is_file():
+            relative = path.relative_to(root).as_posix()
+            entries.append({
+                "path": ("%s/%s" % (prefix, relative) if prefix else relative),
+                "sha256": _sha_file(path),
+                "bytes": path.stat().st_size,
+            })
+    return entries
+
+
+def _tree_problems(root: Path, tree: List[Dict[str, Any]],
+                   allowed: List[str] = None,
+                   prefix: str = "") -> List[Dict[str, Any]]:
+    root = Path(root)
+    prefix = (prefix or "").rstrip("/")
+    problems = []
+    expected = {}
+    for item in tree or []:
+        declared = _text(item.get("path"))
+        relative = declared
+        if prefix and declared.startswith(prefix + "/"):
+            relative = declared[len(prefix) + 1:]
+        expected[relative] = _text(item.get("sha256"))
+        path = root / relative
+        if not path.is_file():
+            problems.append({"path": declared, "problem": "missing"})
+            continue
+        actual = _sha_file(path)
+        if actual != expected[relative]:
+            problems.append({"path": declared, "problem": "hash_changed",
+                             "expected": expected[relative], "actual": actual})
+    allowed_paths = set(expected) | set(allowed or [])
+    if root.is_dir():
+        for path in sorted(root.rglob("*")):
+            if not path.is_file():
+                continue
+            relative = path.relative_to(root).as_posix()
+            if relative.endswith(".tmp"):
+                continue
+            if relative not in allowed_paths:
+                problems.append({"path": relative, "problem": "unexpected"})
+    return problems
+
+
+def _writes_under(journal: Dict[str, Any], final_rel: Optional[str]) -> List[str]:
+    if not final_rel:
+        return []
+    prefix = final_rel.rstrip("/") + "/"
+    return [item["path"][len(prefix):]
+            for item in journal.get("writes") or []
+            if _text(item.get("path")).startswith(prefix)]
+
+
+def _inspect_promote(case_dir: Path,
+                     journal: Dict[str, Any]) -> Dict[str, Any]:
+    staging_rel = _text(journal.get("staging")) or None
+    final_rel = _text(journal.get("final")) or None
+    tree = journal.get("tree") or []
+    step = {"name": "promote", "state": "conflict", "problems": []}
+    if not final_rel:
+        step["state"] = "done"
+        return step
+    final = Path(case_dir) / final_rel
+    staging = (Path(case_dir) / staging_rel) if staging_rel else None
+    allowed = _writes_under(journal, final_rel)
+    if final.is_dir():
+        problems = _tree_problems(final, tree, allowed,
+                                  prefix=final_rel)
+        if problems:
+            step["problems"] = problems
+            return step
+        step["state"] = "done"
+        if staging is not None and staging.exists():
+            step["note"] = "stale staging left behind"
+        return step
+    if staging is not None and staging.is_dir():
+        problems = _tree_problems(staging, tree, prefix=final_rel)
+        if problems:
+            step["problems"] = problems
+            return step
+        step["state"] = "pending"
+        step["note"] = "staging intact"
+        return step
+    step["problems"] = [{"path": final_rel,
+                         "problem": "staging_and_final_missing"}]
+    return step
+
+
+def _inspect_write(case_dir: Path, write: Dict[str, Any]) -> Dict[str, Any]:
+    relative = _text(write.get("path"))
+    step = {"name": _text(write.get("step")), "path": relative,
+            "state": "pending", "problems": []}
+    path = Path(case_dir) / relative
+    if path.is_file():
+        actual = _sha_file(path)
+        if actual == _text(write.get("sha256")):
+            step["state"] = "done"
+        elif (write.get("before_sha256")
+              and actual == _text(write.get("before_sha256"))):
+            step["note"] = "old content still in place"
+        else:
+            step["state"] = "conflict"
+            step["problems"] = [{"path": relative, "problem": "hash_changed",
+                                 "expected": write.get("sha256"),
+                                 "actual": actual}]
+    return step
+
+
+def _inspect_journal(case_dir: Path,
+                     journal_path: Path) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    info = {
+        "kind": "journal",
+        "journal": journal_path.name,
+        "path": str(journal_path),
+        "revision_id": _revision_id_from_journal(journal_path),
+        "state": "conflict",
+        "steps": [],
+        "problems": [],
+    }
+    try:
+        data = json.loads(journal_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        info["message"] = ("journal 损坏，需人工核对：%s（%s）"
+                           % (journal_path.name, exc))
+        return info, None
+    if not isinstance(data, dict) or data.get("schema") != JOURNAL_SCHEMA:
+        info["message"] = ("journal 格式不受支持，需人工核对：%s"
+                           % journal_path.name)
+        return info, None
+    info["revision_id"] = _text(data.get("revision_id")) or info["revision_id"]
+    info["journal_kind"] = _text(data.get("kind"))
+    info["parent_revision_id"] = data.get("parent_revision_id")
+    steps = []
+    if _text(data.get("staging")):
+        steps.append(_inspect_promote(case_dir, data))
+    for write in data.get("writes") or []:
+        if isinstance(write, dict):
+            steps.append(_inspect_write(case_dir, write))
+    seen_incomplete = False
+    for step in steps:
+        if step["state"] == "done" and seen_incomplete:
+            step["state"] = "conflict"
+            step["problems"].append({"problem": "out_of_order"})
+        if step["state"] in ("pending", "conflict"):
+            seen_incomplete = True
+    info["steps"] = steps
+    info["problems"] = [problem for step in steps
+                        for problem in step.get("problems") or []]
+    if any(step["state"] == "conflict" for step in steps):
+        info["state"] = "conflict"
+        info["message"] = ("上一次修订未完成，需人工核对：%s（%s）"
+                           % (info["revision_id"], info["journal_kind"]))
+    elif steps and all(step["state"] == "done" for step in steps):
+        info["state"] = "complete"
+        info["message"] = ("journal 记录的事务已全部落盘，待清理：%s"
+                           % info["revision_id"])
+    else:
+        info["state"] = "resumable"
+        info["message"] = ("可完成上一次中断的修订：%s（%s）"
+                           % (info["revision_id"], info["journal_kind"]))
+    return info, data
+
+
+def _apply_journal(case_dir: Path, journal: Dict[str, Any],
+                   journal_path: Path) -> None:
+    case_dir = Path(case_dir)
+    kind = _text(journal.get("kind"))
+    revision_id = _text(journal.get("revision_id"))
+    staging_rel = _text(journal.get("staging")) or None
+    final_rel = _text(journal.get("final")) or None
+    tree = journal.get("tree") or []
+    if staging_rel:
+        staging = case_dir / staging_rel
+        final = case_dir / final_rel
+        allowed = _writes_under(journal, final_rel)
+        if final.is_dir():
+            problems = _tree_problems(final, tree, allowed,
+                                  prefix=final_rel)
+            if problems:
+                raise JournalConflict(
+                    "恢复冲突：已提升的 revision 与 journal 不一致：%s"
+                    % json.dumps(problems, ensure_ascii=False))
+            if staging.exists():
+                shutil.rmtree(staging)
+                _fsync_dir(staging.parent)
+        else:
+            if not staging.is_dir():
+                raise JournalConflict(
+                    "恢复冲突：staging 与 final 均不存在：%s" % staging_rel)
+            problems = _tree_problems(staging, tree, prefix=final_rel)
+            if problems:
+                raise JournalConflict(
+                    "恢复冲突：staging 与 journal 不一致：%s"
+                    % json.dumps(problems, ensure_ascii=False))
+            staging.rename(final)
+            _fsync_dir(final.parent)
+            stage = _CHECKPOINT_STAGES.get((kind, "promote"))
+            if stage:
+                _checkpoint(stage, {"revision_id": revision_id, "kind": kind,
+                                    "step": "promote"})
+    for write in journal.get("writes") or []:
+        path = case_dir / _text(write.get("path"))
+        if path.is_file():
+            actual = _sha_file(path)
+            if actual == _text(write.get("sha256")):
+                continue
+            if not (write.get("before_sha256")
+                    and actual == _text(write.get("before_sha256"))):
+                raise JournalConflict(
+                    "恢复冲突：%s 与 journal 期望的 hash 不一致"
+                    % write.get("path"))
+        _write_bytes_durable(path, _json_bytes(write.get("payload")))
+        stage = _CHECKPOINT_STAGES.get((kind, _text(write.get("step"))))
+        if stage:
+            _checkpoint(stage, {"revision_id": revision_id, "kind": kind,
+                                "step": _text(write.get("step"))})
+    # Verify the complete post-state before dropping the journal.
+    if staging_rel:
+        problems = _tree_problems(case_dir / final_rel, tree,
+                                  _writes_under(journal, final_rel),
+                                  prefix=final_rel)
+        if problems:
+            raise JournalConflict(
+                "恢复冲突：完成后的 revision 仍与 journal 不一致：%s"
+                % json.dumps(problems, ensure_ascii=False))
+    for write in journal.get("writes") or []:
+        path = case_dir / _text(write.get("path"))
+        if not path.is_file() or _sha_file(path) != _text(write.get("sha256")):
+            raise JournalConflict(
+                "恢复冲突：%s 未能写入 journal 期望的内容" % write.get("path"))
+    _unlink_durable(journal_path)
+
+
+def _rollback_journal(case_dir: Path, journal: Dict[str, Any],
+                      journal_path: Path) -> None:
+    case_dir = Path(case_dir)
+    for write in reversed(journal.get("writes") or []):
+        path = case_dir / _text(write.get("path"))
+        if path.is_file():
+            actual = _sha_file(path)
+            if actual == _text(write.get("before_sha256")):
+                continue
+            if actual != _text(write.get("sha256")):
+                raise JournalConflict(
+                    "回滚拒绝：%s 在 journal 之后被其他写入改动"
+                    % write.get("path"))
+        before = write.get("before")
+        if before is None:
+            _unlink_durable(path)
+        else:
+            _write_bytes_durable(path, _json_bytes(before))
+    staging_rel = _text(journal.get("staging")) or None
+    if staging_rel:
+        final_rel = _text(journal.get("final")) or None
+        staging = case_dir / staging_rel
+        if staging.exists():
+            shutil.rmtree(staging)
+        if final_rel:
+            final = case_dir / final_rel
+            if final.exists():
+                shutil.rmtree(final)
+                _fsync_dir(final.parent)
+    _unlink_durable(journal_path)
+
+
+def _rollback_corrupt_journal(case_dir: Path,
+                              issue: Dict[str, Any]) -> None:
+    revision_id = _text(issue.get("revision_id"))
+    _unlink_durable(Path(issue["path"]))
+    if not revision_id:
+        return
+    final = _revision_dir(case_dir, revision_id)
+    if final.exists():
+        shutil.rmtree(final)
+        _fsync_dir(final.parent)
+    _drop_index_entry(case_dir, revision_id)
+
+
+def _drop_index_entry(case_dir: Path, revision_id: str) -> None:
+    path = _index_path(case_dir)
+    if not path.is_file():
+        return
+    index = _load_index(case_dir)
+    remaining = [item for item in index.get("revisions") or []
+                 if _text(item.get("revision_id")) != revision_id]
+    if len(remaining) == len(index.get("revisions") or []):
+        return
+    index["revisions"] = remaining
+    ids = [_text(item.get("revision_id")) for item in remaining]
+    index["latest"] = ids[-1] if ids else None
+    _write_json_durable(path, index)
+
+
+def _source_problems(case_dir: Path) -> List[Dict[str, Any]]:
+    try:
+        snapshot = _source_snapshot(case_dir)
+        bundle = _bundle_root(case_dir)
+    except CloseError as exc:
+        return [{"problem": "source_snapshot_unavailable", "detail": str(exc)}]
+    if bundle is None or not Path(bundle).is_dir():
+        return [{"problem": "bundle_missing", "path": str(bundle)}]
+    problems = []
+    for item in snapshot:
+        path = Path(bundle) / item["path"]
+        if not path.is_file():
+            problems.append({"path": item["path"],
+                             "problem": "source_missing"})
+        elif _sha_file(path) != item["sha256"]:
+            problems.append({"path": item["path"],
+                             "problem": "source_hash_changed",
+                             "expected": item["sha256"],
+                             "actual": _sha_file(path)})
+    return problems
+
+
+def _verify_orphan(case_dir: Path, revision_id: str,
+                   index: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]],
+                                                   List[Dict[str, Any]]]:
+    final = _revision_dir(case_dir, revision_id)
+    record_path = final / "revision.json"
+    if not record_path.is_file():
+        return None, [{"problem": "missing_revision_record",
+                       "path": _case_rel(case_dir, record_path)}]
+    try:
+        record = _read_json(record_path, "revision.json")
+    except CloseError as exc:
+        return None, [{"problem": "invalid_revision_record",
+                       "detail": str(exc)}]
+    problems = []
+    if _text(record.get("revision_id")) != revision_id:
+        problems.append({"problem": "revision_id_mismatch",
+                         "expected": revision_id,
+                         "actual": record.get("revision_id")})
+    ids = [_text(item.get("revision_id"))
+           for item in index.get("revisions") or []]
+    parent = record.get("parent_revision_id")
+    if parent is None:
+        if ids:
+            problems.append({"problem": "r1_orphan_with_nonempty_index"})
+    else:
+        parent = _text(parent)
+        if parent not in ids:
+            problems.append({"problem": "parent_not_indexed", "parent": parent})
+        elif _text(index.get("latest")) != parent:
+            problems.append({"problem": "not_a_direct_child_of_latest",
+                             "parent": parent,
+                             "latest": index.get("latest")})
+    try:
+        if record.get("input_snapshot_hash") != _input_snapshot_hash(final):
+            problems.append({"problem": "input_snapshot_hash_mismatch"})
+    except CloseError as exc:
+        problems.append({"problem": "input_snapshot_unavailable",
+                         "detail": str(exc)})
+    if record.get("rule_map_hash") != _rule_map_hash(final):
+        problems.append({"problem": "rule_map_hash_mismatch"})
+    calculation_path = final / "calculation.json"
+    if not calculation_path.is_file():
+        problems.append({"problem": "missing_calculation"})
+    else:
+        calculation = _read_json(calculation_path, "calculation.json")
+        if (calculation.get("calculation_fingerprint")
+                != record.get("calculation_fingerprint")):
+            problems.append({"problem": "calculation_fingerprint_mismatch"})
+        canonical_hash = ((calculation.get("canonical_snapshot") or {})
+                          .get("fingerprint"))
+        if canonical_hash != record.get("canonical_snapshot_hash"):
+            problems.append({"problem": "canonical_snapshot_mismatch"})
+    report_path = final / "report" / "report.json"
+    if not report_path.is_file():
+        problems.append({"problem": "missing_report"})
+    else:
+        report = _read_json(report_path, "report/report.json")
+        fingerprint = (report.get("replay") or {}).get(
+            "output_snapshot_fingerprint")
+        if fingerprint != record.get("report_fingerprint"):
+            problems.append({"problem": "report_fingerprint_mismatch"})
+        elif fingerprint and fingerprint != _report_fingerprint(report):
+            problems.append({"problem": "report_tampered"})
+    problems.extend(_source_problems(final))
+    if revision_id != "r1":
+        delta_path = final / "delta.json"
+        if not delta_path.is_file():
+            problems.append({"problem": "missing_delta"})
+        else:
+            delta = _read_json(delta_path, "delta.json")
+            if _text(delta.get("from_revision")) != _text(parent):
+                problems.append({"problem": "delta_from_mismatch"})
+            if _text(delta.get("to_revision")) != revision_id:
+                problems.append({"problem": "delta_to_mismatch"})
+    return (record if not problems else None), problems
+
+
+def _adopt_revision(case_dir: Path, revision_id: str,
+                    record: Dict[str, Any]) -> bool:
+    index = _load_index(case_dir)
+    ids = [_text(item.get("revision_id"))
+           for item in index.get("revisions") or []]
+    if revision_id in ids:
+        return False
+    index.setdefault("schema", INDEX_SCHEMA)
+    index.setdefault("case_id", _case_id(case_dir))
+    index["revisions"].append(_summary(record))
+    index["latest"] = revision_id
+    _write_json_durable(_index_path(case_dir), index)
+    return True
+
+
+def _scan_orphans(case_dir: Path,
+                  index: Dict[str, Any]) -> List[Dict[str, Any]]:
+    root = _revisions_dir(case_dir)
+    if not root.is_dir():
+        return []
+    indexed = {_text(item.get("revision_id"))
+               for item in index.get("revisions") or []}
+    issues = []
+    for path in sorted(root.iterdir()):
+        if path.is_file():
+            continue
+        name = path.name
+        if name.startswith(STAGING_PREFIX):
+            issues.append({
+                "kind": "staging",
+                "revision_id": name[len(STAGING_PREFIX):],
+                "state": "stale_staging",
+                "path": str(path),
+                "message": "发现遗留的 staging 目录：%s" % name,
+                "steps": [],
+            })
+            continue
+        if not REVISION_ID_RE.match(name):
+            issues.append({
+                "kind": "unknown",
+                "revision_id": name,
+                "state": "conflict",
+                "path": str(path),
+                "message": "revisions/ 下出现无法识别的目录：%s" % name,
+                "steps": [],
+            })
+            continue
+        if name in indexed:
+            continue
+        record, problems = _verify_orphan(case_dir, name, index)
+        issues.append({
+            "kind": "orphan",
+            "revision_id": name,
+            "state": "resumable" if record is not None else "conflict",
+            "path": str(path),
+            "record": record,
+            "problems": problems,
+            "message": ("发现未入索引的修订：%s" % name if record is not None
+                        else "未入索引的修订 %s 无法校验，需人工核对" % name),
+            "steps": [],
+        })
+    return issues
+
+
+def _inspect_all(case_dir: Path) -> List[Dict[str, Any]]:
+    issues = []
+    journal_ids = set()
+    for path in _journal_paths(case_dir):
+        info, data = _inspect_journal(case_dir, path)
+        info["data"] = data
+        journal_ids.add(_text(info.get("revision_id")))
+        issues.append(info)
+    index = _load_index(case_dir)
+    for orphan in _scan_orphans(case_dir, index):
+        if _text(orphan.get("revision_id")) in journal_ids:
+            continue
+        issues.append(orphan)
+    return issues
+
+
+def _public_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
+    return {key: value for key, value in issue.items()
+            if key not in ("data", "record")}
+
+
+def _issue_summary(issue: Dict[str, Any]) -> str:
+    revision_id = _text(issue.get("revision_id")) or "?"
+    kind = _text(issue.get("journal_kind")) or _text(issue.get("kind"))
+    steps = issue.get("steps") or []
+    detail = ", ".join("%s=%s" % (step.get("name"), step.get("state"))
+                       for step in steps)
+    if not detail:
+        detail = _text(issue.get("message"))
+    return "%s（%s）：%s" % (revision_id, kind, detail)
+
+
+def ensure_recovered(case_dir: Path, *, strict: bool = False) -> Dict[str, Any]:
+    """Complete pending close journals before an entry point reads or writes."""
+    case_dir = Path(case_dir)
+    issues = _inspect_all(case_dir)
+    remaining = []
+    recovered = []
+    for issue in issues:
+        if issue.get("kind") == "journal":
+            data = issue.get("data")
+            if issue.get("state") == "complete" and data is not None:
+                _unlink_durable(Path(issue["path"]))
+                recovered.append(issue)
+                continue
+            if issue.get("state") == "resumable" and data is not None:
+                try:
+                    _apply_journal(case_dir, data, Path(issue["path"]))
+                except JournalConflict as exc:
+                    conflict = dict(issue)
+                    conflict["state"] = "conflict"
+                    conflict["message"] = str(exc)
+                    remaining.append(conflict)
+                    continue
+                recovered.append(issue)
+                continue
+            remaining.append(issue)
+            continue
+        if issue.get("kind") == "orphan" and issue.get("state") == "resumable":
+            _adopt_revision(case_dir, _text(issue.get("revision_id")),
+                            issue.get("record") or {})
+            recovered.append(issue)
+            continue
+        remaining.append(issue)
+    if remaining:
+        conflicted = any(issue.get("state") == "conflict"
+                        for issue in remaining)
+        if conflicted:
+            message = ("上一次修订未完成，需人工核对："
+                       + "；".join(_issue_summary(issue)
+                                  for issue in remaining))
+        else:
+            message = ("发现待恢复的修订目录："
+                       + "；".join(_issue_summary(issue)
+                                  for issue in remaining))
+        result = {
+            "state": "conflict" if conflicted else "orphan",
+            "message": message,
+            "issues": [_public_issue(issue) for issue in remaining],
+            "recovered": [_public_issue(issue) for issue in recovered],
+        }
+        if strict and conflicted:
+            raise CloseError("REVIEW_REQUIRED", message)
+        return result
+    if recovered:
+        return {
+            "state": "recovered",
+            "message": ("已恢复上一次中断的修订："
+                        + "；".join(_issue_summary(issue)
+                                   for issue in recovered)),
+            "issues": [],
+            "recovered": [_public_issue(issue) for issue in recovered],
+        }
+    return {"state": "clean", "message": "没有待恢复的修订事务",
+            "issues": [], "recovered": []}
+
+
+def recover(case_dir: Path, *, apply: bool = False,
+            rollback: bool = False) -> Dict[str, Any]:
+    """Inspect pending journals; dry-run unless --apply / --rollback."""
+    if apply and rollback:
+        raise CloseError("INPUT_REQUIRED",
+                         "choose either --apply or --rollback")
+    case_dir = Path(case_dir)
+    issues = _inspect_all(case_dir)
+    public = [_public_issue(issue) for issue in issues]
+    if not issues:
+        return {"state": "clean", "issues": [], "applied": [],
+                "rolled_back": []}
+    if apply:
+        conflicts = [issue for issue in issues
+                     if issue.get("state") == "conflict"]
+        if conflicts:
+            raise CloseError(
+                "REVIEW_REQUIRED",
+                "recover --apply 拒绝执行，需人工核对："
+                + "；".join(_issue_summary(issue) for issue in conflicts))
+        applied = []
+        for issue in issues:
+            if issue.get("kind") == "journal":
+                _apply_journal(case_dir, issue.get("data") or {},
+                               Path(issue["path"]))
+            elif issue.get("kind") == "orphan":
+                _adopt_revision(case_dir, _text(issue.get("revision_id")),
+                                issue.get("record") or {})
+            elif issue.get("kind") == "staging":
+                path = Path(issue["path"])
+                if path.exists():
+                    shutil.rmtree(path)
+                    _fsync_dir(path.parent)
+            applied.append(_public_issue(issue))
+        return {"state": "applied", "applied": applied, "issues": [],
+                "rolled_back": []}
+    if rollback:
+        rolled_back = []
+        for issue in issues:
+            if issue.get("kind") == "journal":
+                if issue.get("data") is None:
+                    _rollback_corrupt_journal(case_dir, issue)
+                else:
+                    _rollback_journal(case_dir, issue.get("data") or {},
+                                      Path(issue["path"]))
+            elif issue.get("kind") == "orphan":
+                path = Path(issue["path"])
+                if path.exists():
+                    shutil.rmtree(path)
+                    _fsync_dir(path.parent)
+                _drop_index_entry(case_dir,
+                                  _text(issue.get("revision_id")))
+            elif issue.get("kind") == "staging":
+                path = Path(issue["path"])
+                if path.exists():
+                    shutil.rmtree(path)
+                    _fsync_dir(path.parent)
+            rolled_back.append(_public_issue(issue))
+        return {"state": "rolled_back", "applied": [], "issues": [],
+                "rolled_back": rolled_back}
+    return {"state": "planned", "issues": public, "applied": [],
+            "rolled_back": []}
+
+
+def _report_fingerprint(report: Dict[str, Any]) -> str:
+    body = dict(report)
+    body.pop("generated_at", None)
+    body["replay"] = dict(body.get("replay") or {})
+    body["replay"].pop("output_snapshot_fingerprint", None)
+    return _fingerprint(body)
+
+
 def _ensure_root_snapshot(case_dir: Path) -> Dict[str, Any]:
+    """Snapshot the V-02/V-03 root as r1 through the same journal as revise."""
     case_dir = Path(case_dir)
     index = _load_index(case_dir)
     if index.get("revisions"):
@@ -268,31 +1037,62 @@ def _ensure_root_snapshot(case_dir: Path) -> Dict[str, Any]:
                          "and close report before creating a revision")
     root = _revisions_dir(case_dir) / "r1"
     if root.exists():
-        shutil.rmtree(root)
-    root.mkdir(parents=True)
+        record, problems = _verify_orphan(case_dir, "r1", index)
+        if record is not None:
+            _adopt_revision(case_dir, "r1", record)
+            return _load_index(case_dir)
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "revisions/r1 exists but cannot be verified; run close recover "
+            "--apply or --rollback before revising (%s)"
+            % json.dumps(problems, ensure_ascii=False))
+    staging = _revisions_dir(case_dir) / (STAGING_PREFIX + "r1")
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
     for name in ("period-job.json", "intake", "canonical", "calculation.json",
                  "report", "review.json", "signoff.json"):
         source = case_dir / name
         if source.is_dir():
-            shutil.copytree(source, root / name, symlinks=True)
+            shutil.copytree(source, staging / name, symlinks=True)
         elif source.is_file():
-            shutil.copy2(source, root / name)
+            shutil.copy2(source, staging / name)
     bundle = _bundle_root(case_dir)
     if bundle is not None:
-        shutil.copytree(bundle, root / "bundle", symlinks=True)
-        _rewrite_bundle_root(root)
-    record = _build_record(root, "r1", None,
-                           [item["path"] for item in _source_snapshot(root)],
-                           [], [], reason="initial snapshot")
-    _write_json(root / "revision.json", record)
+        shutil.copytree(bundle, staging / "bundle", symlinks=True)
+        _rewrite_bundle_root(staging, root / "bundle")
+    record = _build_record(
+        staging, "r1", None,
+        [item["path"] for item in _source_snapshot(staging)],
+        [], [], reason="initial snapshot")
     index = {
         "schema": INDEX_SCHEMA,
         "case_id": _case_id(case_dir),
         "revisions": [_summary(record)],
         "latest": "r1",
     }
-    _write_index(case_dir, index)
-    return index
+    journal = {
+        "schema": JOURNAL_SCHEMA,
+        "kind": "snapshot",
+        "revision_id": "r1",
+        "parent_revision_id": None,
+        "created_at": _now(),
+        "input_snapshot_hash": record["input_snapshot_hash"],
+        "staging": _case_rel(case_dir, staging),
+        "final": _case_rel(case_dir, root),
+        "tree": _tree_hashes(staging, _case_rel(case_dir, root)),
+        "writes": [
+            _write_descriptor(case_dir, "record", root / "revision.json",
+                              record),
+            _write_descriptor(case_dir, "index", _index_path(case_dir), index),
+        ],
+        "steps": ["promote", "record", "index"],
+    }
+    _fsync_tree(staging)
+    journal_path = _journal_path(case_dir, "r1")
+    _write_json_durable(journal_path, journal)
+    _apply_journal(case_dir, journal, journal_path)
+    return _load_index(case_dir)
 
 
 def _validate_same_identity(parent: Dict[str, Any], child: Dict[str, Any]) -> None:
@@ -355,6 +1155,7 @@ def revise(case_dir: Path, *, bundle: Path = None, source: Path = None,
     if bool(bundle) == bool(source):
         raise CloseError("INPUT_REQUIRED",
                          "provide exactly one of --bundle or --source")
+    ensure_recovered(case_dir, strict=True)
     index = _ensure_root_snapshot(case_dir)
     parent_id = index["latest"]
     parent_dir = _revision_dir(case_dir, parent_id)
@@ -365,7 +1166,7 @@ def revise(case_dir: Path, *, bundle: Path = None, source: Path = None,
         raise CloseError("STALE_SOURCE",
                          "the parent revision has no available bundle snapshot")
     next_id = "r%d" % (len(index["revisions"]) + 1)
-    staging = _revisions_dir(case_dir) / (".staging-" + next_id)
+    staging = _revisions_dir(case_dir) / (STAGING_PREFIX + next_id)
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
@@ -422,6 +1223,8 @@ def revise(case_dir: Path, *, bundle: Path = None, source: Path = None,
     close_report.calculate(staging)
     close_report.build_report(staging)
 
+    final = _revision_dir(case_dir, next_id)
+    _rewrite_bundle_root(staging, final / "bundle")
     added, removed, changed = _diff_sources(
         parent_record.get("source_snapshot") or _source_snapshot(parent_dir),
         _source_snapshot(staging))
@@ -431,22 +1234,59 @@ def revise(case_dir: Path, *, bundle: Path = None, source: Path = None,
             and record["rule_map_hash"] == parent_record["rule_map_hash"]):
         shutil.rmtree(staging)
         return {"revision": parent_record, "delta": None, "idempotent": True}
-    final = _revision_dir(case_dir, next_id)
     if final.exists():
+        # V-04 crashed between rename() and index.json.  The directory is a
+        # committed revision, not a version to overwrite: adopt it when it
+        # matches, refuse with a recovery instruction when it does not.
+        try:
+            existing = _read_json(final / "revision.json", "revision.json")
+        except CloseError:
+            existing = None
+        if (existing is not None
+                and existing.get("input_snapshot_hash")
+                == record["input_snapshot_hash"]
+                and existing.get("rule_map_hash") == record["rule_map_hash"]):
+            shutil.rmtree(staging)
+            _adopt_revision(case_dir, next_id, existing)
+            delta_path = final / "delta.json"
+            delta = (_read_json(delta_path, "delta.json")
+                     if delta_path.is_file() else None)
+            return {"revision": existing, "delta": delta,
+                    "idempotent": True, "recovery": "adopted_unindexed"}
         shutil.rmtree(staging)
-        raise CloseError("REVIEW_REQUIRED",
-                         "revision %s already exists; no version is overwritten"
-                         % next_id)
-    staging.rename(final)
-    _rewrite_bundle_root(final)
-    record = _build_record(final, next_id, parent_id, added, removed, changed,
-                           reason=reason)
-    _write_json(final / "revision.json", record)
-    delta = _build_delta_dirs(parent_dir, final)
-    _write_json(final / "delta.json", delta)
-    index["revisions"].append(_summary(record))
-    index["latest"] = next_id
-    _write_index(case_dir, index)
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "revision %s exists without an index entry and does not match this "
+            "input; run close recover %s --apply or --rollback before revising"
+            % (next_id, case_dir))
+    delta = _build_delta_dirs(parent_dir, staging, to_name=next_id,
+                              after_record=record)
+    index_after = deepcopy(index)
+    index_after["revisions"].append(_summary(record))
+    index_after["latest"] = next_id
+    journal = {
+        "schema": JOURNAL_SCHEMA,
+        "kind": "revise",
+        "revision_id": next_id,
+        "parent_revision_id": parent_id,
+        "created_at": _now(),
+        "input_snapshot_hash": record["input_snapshot_hash"],
+        "staging": _case_rel(case_dir, staging),
+        "final": _case_rel(case_dir, final),
+        "tree": _tree_hashes(staging, _case_rel(case_dir, final)),
+        "writes": [
+            _write_descriptor(case_dir, "record", final / "revision.json",
+                              record),
+            _write_descriptor(case_dir, "delta", final / "delta.json", delta),
+            _write_descriptor(case_dir, "index", _index_path(case_dir),
+                              index_after, before=index),
+        ],
+        "steps": ["promote", "record", "delta", "index"],
+    }
+    _fsync_tree(staging)
+    journal_path = _journal_path(case_dir, next_id)
+    _write_json_durable(journal_path, journal)
+    _apply_journal(case_dir, journal, journal_path)
     return {"revision": record, "delta": delta, "idempotent": False,
             "path": str(final)}
 
@@ -499,7 +1339,9 @@ def _credit_lines(report: Dict[str, Any]) -> Tuple[List[Dict[str, Any]],
     return applied, pending
 
 
-def _build_delta_dirs(before_dir: Path, after_dir: Path) -> Dict[str, Any]:
+def _build_delta_dirs(before_dir: Path, after_dir: Path, *,
+                      to_name: str = None,
+                      after_record: Dict[str, Any] = None) -> Dict[str, Any]:
     before = _read_json(before_dir / "report" / "report.json", "report/report.json")
     after = _read_json(after_dir / "report" / "report.json", "report/report.json")
     before_amounts = before.get("amounts") or {}
@@ -586,7 +1428,7 @@ def _build_delta_dirs(before_dir: Path, after_dir: Path) -> Dict[str, Any]:
     return {
         "schema": DELTA_SCHEMA,
         "from_revision": before_dir.name,
-        "to_revision": after_dir.name,
+        "to_revision": to_name or after_dir.name,
         "amounts": amounts,
         "axes": axes,
         "changed_axes": changed_axes,
@@ -611,8 +1453,9 @@ def _build_delta_dirs(before_dir: Path, after_dir: Path) -> Dict[str, Any]:
         "revision": {
             "before": _read_json(before_dir / "revision.json",
                                  "revision.json").get("status"),
-            "after": _read_json(after_dir / "revision.json",
-                                "revision.json").get("status"),
+            "after": ((after_record if after_record is not None else
+                       _read_json(after_dir / "revision.json",
+                                  "revision.json")).get("status")),
         },
         "classification": {
             "amount_changes": credits["classification"]["amount_changes"],
@@ -671,30 +1514,198 @@ def resolve_case_dir(case_dir: Path, revision_id: str = "") -> Path:
     return case_dir
 
 
+def _verify_signed_triple(case_dir: Path, revision: Dict[str, Any],
+                          signoff: Dict[str, Any]) -> None:
+    """signoff.json, revision.json and index.json must tell one story."""
+    if revision is None:
+        return
+    revision_id = _text(revision.get("revision_id"))
+    index = _load_index(case_dir)
+    entry = next((item for item in index.get("revisions") or []
+                  if _text(item.get("revision_id")) == revision_id), None)
+    problems = []
+    if entry is None:
+        problems.append("index.json 没有 %s 的条目" % revision_id)
+    else:
+        if not (entry.get("status") == revision.get("status")
+                == signoff.get("state")):
+            problems.append("status 不一致：signoff=%r revision=%r index=%r"
+                            % (signoff.get("state"), revision.get("status"),
+                               entry.get("status")))
+        if not (entry.get("closed_at") == revision.get("closed_at")
+                == signoff.get("decided_at")):
+            problems.append("closed_at 不一致")
+        if not (entry.get("reviewer") == revision.get("reviewer")
+                == signoff.get("reviewer")):
+            problems.append("reviewer 不一致")
+    if revision.get("signoff") != signoff:
+        problems.append("revision.json 内的 signoff 与 signoff.json 不一致")
+    if problems:
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "signoff/revision/index 三处不一致，需人工核对或运行 close recover："
+            + "；".join(problems))
+
+
+def _verify_signoff_freshness(case_dir: Path, target: Path,
+                              revision: Optional[Dict[str, Any]],
+                              existing: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Re-verify the signed surface from the bytes on disk, right before writing.
+
+    A signoff is only meaningful over the exact report, canonical snapshot and
+    source files it was produced from.  A changed canonical bundle, a changed
+    source export or a hand-edited report must refuse with the step to rerun
+    instead of producing a second, inconsistent signoff.
+    """
+    def stale(message):
+        raise CloseError("STALE_SOURCE", message)
+
+    report_path = target / "report" / "report.json"
+    if not report_path.is_file():
+        raise CloseError("REVIEW_REQUIRED",
+                         "this revision has no report; run close revise to build "
+                         "a report before signing")
+    report = _read_json(report_path, "report/report.json")
+    if not (target / "calculation.json").is_file():
+        stale("calculation.json is missing; run close revise before signing")
+    calculation = _read_json(target / "calculation.json", "calculation.json")
+    expected_calculation = _fingerprint(
+        close_report._calculation_projection(calculation.get("outcome") or {}))
+    if calculation.get("calculation_fingerprint") != expected_calculation:
+        stale("calculation.json no longer matches its own fingerprint; run close "
+              "revise instead of trusting an edited calculation")
+    try:
+        snapshot = close_report._canonical_snapshot(target)
+        current_inputs = close_report._input_hashes(target)
+    except CloseError as exc:
+        stale("the canonical bundle is unavailable or incomplete (%s); run close "
+              "revise" % exc)
+    if (snapshot["fingerprint"]
+            != (calculation.get("canonical_snapshot") or {}).get("fingerprint")):
+        stale("the canonical bundle changed after calculation; run close revise")
+    stored_inputs = calculation.get("input_hashes") or {}
+    for key in sorted(current_inputs):
+        if stored_inputs.get(key) != current_inputs[key]:
+            stale("%s changed after calculation; run close revise" % key)
+
+    replay = report.get("replay") or {}
+    actual_report_fingerprint = _report_fingerprint(report)
+    if replay.get("output_snapshot_fingerprint") != actual_report_fingerprint:
+        stale("report/report.json does not match its own fingerprint; the report "
+              "was edited or truncated — run close revise to rebuild it")
+    if replay.get("calculation_fingerprint") != calculation.get(
+            "calculation_fingerprint"):
+        stale("the report was built from a different calculation; run close "
+              "revise")
+    if replay.get("canonical_fingerprint") != snapshot["fingerprint"]:
+        stale("the report was built from a different canonical snapshot; run "
+              "close revise")
+    for key in ("period_job_sha256", "mapping_confirmed_sha256",
+                "rule_map_sha256"):
+        if replay.get(key) != current_inputs.get(key):
+            stale("report replay input %s changed; run close revise" % key)
+
+    source_snapshot = _source_snapshot(target)
+    source_problems = _source_problems(target)
+    if source_problems:
+        stale("source files changed after the report was built (%s); run close "
+              "revise with the new export"
+              % json.dumps(source_problems, ensure_ascii=False))
+    if revision is not None:
+        revision_id = _text(revision.get("revision_id"))
+        if revision.get("input_snapshot_hash") != _input_snapshot_hash(target):
+            stale("revision %s input snapshot no longer matches its sources; run "
+                  "close revise" % revision_id)
+        if revision.get("rule_map_hash") != _rule_map_hash(target):
+            stale("revision %s rule map changed; run close revise" % revision_id)
+        if (revision.get("calculation_fingerprint")
+                != calculation.get("calculation_fingerprint")):
+            stale("revision %s calculation fingerprint changed; run close revise"
+                  % revision_id)
+        if (revision.get("canonical_snapshot_hash")
+                != snapshot["fingerprint"]):
+            stale("revision %s canonical snapshot changed; run close revise"
+                  % revision_id)
+        if (revision.get("report_fingerprint")
+                != replay.get("output_snapshot_fingerprint")):
+            stale("revision %s report fingerprint changed; run close revise"
+                  % revision_id)
+
+    if existing is not None:
+        checks = (
+            ("report_fingerprint", replay.get("output_snapshot_fingerprint"),
+             "report"),
+            ("calculation_fingerprint", calculation.get(
+                "calculation_fingerprint"), "calculation"),
+            ("canonical_snapshot_fingerprint", snapshot["fingerprint"],
+             "canonical snapshot"),
+            ("input_hashes", stored_inputs, "input hashes"),
+            ("source_snapshot", source_snapshot, "source snapshot"),
+            ("rule_map_hash", _text(report.get("rule_map_hash")),
+             "rule map"),
+        )
+        for key, current, label in checks:
+            if key in existing and existing.get(key) != current:
+                stale("the signed %s no longer matches the %s on disk; a later "
+                      "source must create a new revision — run close revise"
+                      % (label, label))
+        _verify_signed_triple(case_dir, revision, existing)
+    return {
+        "report": report,
+        "calculation": calculation,
+        "snapshot": snapshot,
+        "source_snapshot": source_snapshot,
+        "input_hashes": stored_inputs,
+    }
+
+
 def signoff(case_dir: Path, *, reviewer: str, approved_scope: str = "",
             reservations: List[str] = None, note: str = "",
             revision_id: str = "") -> Dict[str, Any]:
     """Record a named period signoff; never mutates the report or closes items."""
     case_dir = Path(case_dir)
+    ensure_recovered(case_dir, strict=True)
     reviewer = _text(reviewer)
     if not reviewer:
         raise CloseError("INPUT_REQUIRED",
                          "signoff needs --by; an Agent cannot sign for a human")
     target = resolve_case_dir(case_dir, revision_id)
-    if (target / "signoff.json").is_file():
+    revision = (_read_json(target / "revision.json", "revision.json")
+                if (target / "revision.json").is_file() else None)
+    existing = _signoff(target)
+    verified = _verify_signoff_freshness(case_dir, target, revision, existing)
+    report = verified["report"]
+    calculation = verified["calculation"]
+    snapshot = verified["snapshot"]
+    source_snapshot = verified["source_snapshot"]
+    if existing is not None:
         raise CloseError("REVIEW_REQUIRED",
                          "this revision is already signed; a later source must "
                          "create a new revision, never overwrite the signoff")
-    report = _read_json(target / "report" / "report.json", "report/report.json")
+    if revision is not None:
+        index = _load_index(case_dir)
+        entry = next((item for item in index.get("revisions") or []
+                      if _text(item.get("revision_id"))
+                      == _text(revision.get("revision_id"))), None)
+        if entry is None:
+            raise CloseError(
+                "REVIEW_REQUIRED",
+                "index.json does not know revision %s; run close recover "
+                "--apply before signing" % revision.get("revision_id"))
+        if (entry.get("status") != revision.get("status")
+                or entry.get("closed_at") != revision.get("closed_at")
+                or entry.get("reviewer") != revision.get("reviewer")):
+            raise CloseError(
+                "REVIEW_REQUIRED",
+                "revision.json and index.json disagree about revision %s; run "
+                "close recover --apply before signing"
+                % revision.get("revision_id"))
     unresolved = [item for item in report.get("open_items") or []
                   if item.get("state") not in ("resolved", "closed",
                                                "not_applicable")]
-    revision = _read_json(target / "revision.json", "revision.json") \
-        if (target / "revision.json").is_file() else None
     state = "signed_with_open_items" if unresolved else "signed"
     decided_at = _now()
     source_hashes = list(report.get("source_hashes") or [])
-    source_snapshot = _source_snapshot(target)
     rule_map_hash = _text(report.get("rule_map_hash"))
     scope_hash = _fingerprint({
         "case_id": report.get("job_id"),
@@ -721,6 +1732,9 @@ def signoff(case_dir: Path, *, reviewer: str, approved_scope: str = "",
         "rule_map_hash": rule_map_hash,
         "report_fingerprint": (report.get("replay") or {}).get(
             "output_snapshot_fingerprint"),
+        "calculation_fingerprint": calculation.get("calculation_fingerprint"),
+        "canonical_snapshot_fingerprint": snapshot["fingerprint"],
+        "input_hashes": verified["input_hashes"],
         "unresolved_items": [{
             "id": item.get("id"), "kind": item.get("kind"),
             "line_ref": item.get("line_ref"), "state": item.get("state"),
@@ -733,19 +1747,43 @@ def signoff(case_dir: Path, *, reviewer: str, approved_scope: str = "",
                      "authorization, does not close unresolved items, and does not "
                      "transfer to a later revision."),
     }
-    _write_json(target / "signoff.json", record)
+    writes = [_write_descriptor(case_dir, "signoff", target / "signoff.json",
+                                record)]
     if revision is not None:
-        revision["status"] = state
-        revision["closed_at"] = decided_at
-        revision["reviewer"] = reviewer
-        revision["signoff"] = record
-        _write_json(target / "revision.json", revision)
+        updated = deepcopy(revision)
+        updated["status"] = state
+        updated["closed_at"] = decided_at
+        updated["reviewer"] = reviewer
+        updated["signoff"] = record
         index = _load_index(case_dir)
-        for item in index.get("revisions") or []:
-            if item.get("revision_id") == revision["revision_id"]:
+        index_after = deepcopy(index)
+        for item in index_after.get("revisions") or []:
+            if item.get("revision_id") == updated["revision_id"]:
                 item["status"] = state
                 item["closed_at"] = decided_at
                 item["reviewer"] = reviewer
                 break
-        _write_index(case_dir, index)
+        writes.append(_write_descriptor(case_dir, "record",
+                                        target / "revision.json", updated,
+                                        before=revision))
+        writes.append(_write_descriptor(case_dir, "index",
+                                        _index_path(case_dir), index_after,
+                                        before=index))
+    journal = {
+        "schema": JOURNAL_SCHEMA,
+        "kind": "signoff",
+        "revision_id": (revision or {}).get("revision_id", "r1"),
+        "parent_revision_id": (revision or {}).get("parent_revision_id"),
+        "created_at": _now(),
+        "input_snapshot_hash": (revision or {}).get("input_snapshot_hash"),
+        "staging": None,
+        "final": ("revisions/%s" % revision["revision_id"]
+                  if revision is not None else None),
+        "tree": [],
+        "writes": writes,
+        "steps": [item["step"] for item in writes],
+    }
+    journal_path = _journal_path(case_dir, journal["revision_id"])
+    _write_json_durable(journal_path, journal)
+    _apply_journal(case_dir, journal, journal_path)
     return record

@@ -35,6 +35,17 @@ duplicate bill rows cannot become a second report line, unknown currency and
 missing unit prices fail closed, signed roots cannot be rebuilt in place, and
 report replay is bound to period-job/mapping/calculation hashes.
 
+V-06 (revision and signoff recovery): `close revise`, `close signoff` and the
+read entries now write through a durable journal under `revisions/`, so a crash
+between promoting `rN/` and updating `revisions/index.json` (or between the
+signoff file and the index) is detected on the next command instead of leaving
+an orphan version or a half-signed revision. `close recover` lists the pending
+transaction and can `--apply` it or `--rollback` it; an unindexed `rN/` is
+adopted rather than dead-ending the next revision, and a corrupted promoted
+revision or journal is reported, never ignored. Signing re-verifies the report
+fingerprints, the canonical snapshot and every source file hash first, and
+refuses with `STALE_SOURCE` when they moved.
+
 ### Added
 
 - **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `calculate` /
