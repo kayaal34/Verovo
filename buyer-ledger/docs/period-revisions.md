@@ -11,7 +11,8 @@ B="python3 -m buyer_ledger"
 # 初版：V-02 导入 + V-03 报告
 $B close init ./close-2026-10 --from-job ./bundle/period-job.json
 $B close ingest ./close-2026-10 --bundle ./bundle
-$B close mapping ./close-2026-10 --confirm --review-by finance
+$B close mapping ./close-2026-10 --confirm --review-by finance \
+    --control-domain usage=vendor     # 控制域未裁决时必填，见 close mapping 预览
 $B close calculate ./close-2026-10
 $B close report ./close-2026-10
 $B close review ./close-2026-10 --by finance-reviewer --scope "read report"

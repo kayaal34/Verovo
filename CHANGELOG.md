@@ -65,6 +65,15 @@ concurrency conflict. The journal keeps solving single-process crash recovery;
 the lock solves "two writers at once". On platforms without `fcntl` the lock
 degrades to an explicit refusal rather than proceeding unlocked.
 
+### V-02 mapping review output: name the gaps before confirming
+
+`close mapping` now prints every open item (source / field / reason) instead of
+only a count, and the suggested confirm command carries the exact
+`--control-domain role=vendor|buyer` flags the confirm step needs, so the
+command printed by the tool runs as printed. A successful `--confirm` names the
+fields it accepted as gaps (`pending_fields_approved_as_gaps`) — a required
+field that stays unmapped can no longer be confirmed without being shown.
+
 ### Added
 
 - **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `calculate` /
