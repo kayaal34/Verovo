@@ -46,6 +46,16 @@ revision or journal is reported, never ignored. Signing re-verifies the report
 fingerprints, the canonical snapshot and every source file hash first, and
 refuses with `STALE_SOURCE` when they moved.
 
+### V-07 cross-process lock for revisions and signoff
+
+`revise`, `signoff` and `recover` now take an exclusive lock on the case
+(`.close.lock`, `flock` with a non-blocking attempt). Two processes revising or
+signing off the same period no longer race on the same `rN` journal file or the
+signoff triple: one wins and the other gets an explicit `REVIEW_REQUIRED`
+concurrency conflict. The journal keeps solving single-process crash recovery;
+the lock solves "two writers at once". On platforms without `fcntl` the lock
+degrades to an explicit refusal rather than proceeding unlocked.
+
 ### Added
 
 - **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `calculate` /

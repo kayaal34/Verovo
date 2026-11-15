@@ -183,3 +183,12 @@ hash and each expected file hash, so recovery can tell "not started" from
   hash are re-verified. If anything moved, signing fails with `STALE_SOURCE` and
   names the step to re-run. Signing still does not authorize payment, and open
   items stay open.
+
+## V-07 concurrency
+
+`revise`, `signoff` and `recover` hold an exclusive lock on the case directory
+(`.close.lock`, `flock`, non-blocking). A second process working on the same
+period fails fast with `REVIEW_REQUIRED` and a message naming the lock file
+instead of competing for the same `rN` staging directory or the signoff triple.
+The lock is about concurrent writers; the journal (V-06) is about a single
+writer crashing. Run revisions and signoffs for one period sequentially.
