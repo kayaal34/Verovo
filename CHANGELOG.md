@@ -46,6 +46,15 @@ revision or journal is reported, never ignored. Signing re-verifies the report
 fingerprints, the canonical snapshot and every source file hash first, and
 refuses with `STALE_SOURCE` when they moved.
 
+### C-01-Lite minimal delegation projection
+
+`buyer-ledger close status` now also returns a `delegation` block with the eight
+frozen fields (task_id / task_state / next_actor / next_required_action /
+blocked_reason_code / result_ref / authorization_scope / recovery_entry) plus a
+boundary line; the existing `c01_status` block is unchanged. `task_state` maps
+the close-case state onto the six-word C-01 vocabulary and stays PARTIAL while
+open items remain (signoff does not close them).
+
 ### V-07 cross-process lock for revisions and signoff
 
 `revise`, `signoff` and `recover` now take an exclusive lock on the case
