@@ -27,7 +27,7 @@
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 110 项测试（2026-11-09 计数）
+python3 -m unittest discover -s tests -t .     # 当前 173 项测试
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium
@@ -47,14 +47,112 @@ export VEROVO_LLM_BASE_URL=... VEROVO_LLM_API_KEY=... VEROVO_LLM_MODEL=...
 
 ```bash
 cd examples/ai-invoice-reconciliation
-python3 make_demo.py   # 生成合成账单（一个供应商、一个账户、一个账期）
-python3 reconcile.py   # 输出 reconciliation.csv + sample-report.md
+python3 make_demo.py   # 生成合成账单 + ground-truth 注入声明（一个供应商、一个账户、一个账期）
+python3 reconcile.py   # 输出 reconciliation.csv/.json + line-checks.csv + sample-report.md
 ```
 
-- 合成数据，不是客户案例；样例断言
-  `recalc + seats + credits + tax + residual = invoice total`。
+- 合成数据，不是客户案例；差额事实与原因资格分离：无独立证据时资格默认
+  `unresolved`，候选解释带 `basis_refs`/`confidence_kind=heuristic`，
+  `confirmed` 仅在显式 `synthetic_ground_truth` 声明下成立（不冒充真实证据）。
+- 金额平衡恒等式 `recalc + seats + credits + tax + residual = invoice_total`
+  只是 sanity check（按 residual 定义恒成立）；正确性证据来自
+  `line-checks.csv` 的行级独立核对（usage×价格 vs 成本导出 vs 账单行）。
 - 这不是产品完整功能，是“把发票、成本导出、用量导出对到分”的最小可复现件；
   真实账期适配、PDF/XLSX、席位/承诺/汇率仍需按客户材料做。
+
+## 账期包导入与人工字段映射（V-02）
+
+把一份本地账期包（`verovo.period-job/1` + bills/usage 导出 + 已批准规则表）
+导成既有 Period Intake 能消费的 canonical bundle。**导入只给提议，人工确认才
+生成 canonical；原始文件不改，重复导入幂等并保留原始 sha256。**
+
+```bash
+B="python3 -m buyer_ledger"
+
+$B close init ./close-2026-10 --from-job ./bundle/period-job.json
+$B close ingest ./close-2026-10 --bundle ./bundle
+$B close mapping ./close-2026-10                 # 看列映射/控制域/待审项
+$B close mapping ./close-2026-10 --confirm --review-by finance
+$B close status ./close-2026-10                  # BuyerCloseCase 只读投影
+```
+
+- 半开区间 `[from, to)`、单 vendor/account/currency；跨币种先拆分，不合并成
+  一个精确总额。时区与账单展示口径一致。
+- 货币混合、有效期不覆盖账期的价格表、越界路径/符号链接都会被拒绝；
+  重复 charge/usage 只入账一次；未审核映射不能生成 canonical。
+- vendor export 始终是 vendor-controlled（即使买方本地下载）；两份 vendor
+  导出不能变成 `Buyer Verified`。invoice/OCR 只登记为 `unreviewed`、
+  `unbooked` 文档，不凭文本抽取入账。
+- 详细契约、错误码、目录结构与覆盖诊断见
+  [docs/period-import.md](docs/period-import.md)。
+
+## 买方可签核的月结报告（V-03）
+
+`calculate` 运行既有 canonical 财务链，`report` 生成六份可复核/可重放的报告
+对象，`review` 记录署名复核但**不签核、不授权付款、不关闭未决项**。
+
+```bash
+$B close calculate ./close-2026-10
+$B close report ./close-2026-10
+$B close review ./close-2026-10 --by finance-reviewer \
+  --scope "read report and reserve on credit" \
+  --reservation "credit note not applied" \
+  --next-review 2026-11-30
+```
+
+- 六份对象：`report.md`、`report.json`、`line-reconciliation.csv`、
+  `review-queue.csv`、`evidence-index.json`、`manifest.json`（后者的输入
+  hash / 规则版本 / 代码与算法版本 / 输出快照指纹支持 V23 重放）。
+- 四完成轴与 PASS/FAIL/UNKNOWN/UNPROVABLE 裁决分开显示；`finance_status=
+  complete` 只代表资料与归集轴闭合，报告明确写“不可用于付款”。
+- 每行互斥落入 matched / explained adjustment / excluded pending
+  adjustment / residual；`invoice_total = matched_postings +
+  known_adjustments + open_difference`，findings 金额不重复相加。
+- 负 credit、正 tax、未应用退款不报 realized savings；未应用项是 open
+  exposure。缺少 invoice 行时金额是 `null`，不是 `0`。
+- 详细说明见 [docs/close-report.md](docs/close-report.md)。
+
+## 版本化月结与后续调整（V-04）
+
+每个版本独立重算，根目录是 r1；`revise` 快照出 `revisions/r1` 后只追加
+`r2/r3/...`，已签核的 canonical 与报告不被覆盖。`signoff` 只对指定版本的
+指纹署名，不是付款授权，也不关闭 unresolved items。
+
+```bash
+$B close revise ./close-2026-10 --bundle ./bundle-v2 \
+  --review-by finance --reason "vendor revision"
+$B close revise ./close-2026-10 --source ./credit-note.csv --role bills \
+  --review-by finance --reason "credit note issued"
+$B close signoff ./close-2026-10 --revision r2 \
+  --by buyer-controller --scope "accept v2 with open credit" \
+  --reservation "credit not applied"
+$B close status ./close-2026-10                # 默认最新 revision
+$B close status ./close-2026-10 --revision r1
+```
+
+- `PeriodRevision` 记录 `period_job_id`、`revision_id`、`parent_revision_id`、
+  `input_snapshot_hash`、`rule_map_hash`、`source_added/removed/changed`、
+  `reviewer`、`closed_at`、`status`。
+- 同输入 `revise` 直接返回父版本（`idempotent`），不生成新版本；同来源同路径
+  的新内容只按新版本归集，不叠加旧版本。
+- `delta` 分栏显示金额/原因/完成轴变化、新证据、已应用 credit 与仅发出未应用
+  credit；issued credit 不计 realized，applied credit 减少 amount due 但仍
+  不算 savings。
+- 签核要求 `--by`，记录 scope/source/rule 指纹；无署名不产生 signoff，未决
+  项不会被自动改成 closed。详细说明见
+  [docs/period-revisions.md](docs/period-revisions.md)。
+
+### 审计后的导入/报告边界（2026-11-15）
+
+- `[from, to)` 越界行只进 `period_outliers` 与 open items，不进入
+  `invoice_total`；重复 `charge_id` 只保留首笔，报告不再按重复 reconciliation
+  行双计。
+- 缺币种的行标记 `excluded_currency_unknown`，总额为 `null`，不默认 USD；
+  缺 unit price/rate rule 时 `rule_repricing_status=partial`、小计为 `null`。
+- 报告带 `invoice_total_status`（complete/partial/unknown）；缺 charge_id、
+  重复行、越界行都会显式降低状态。
+- 已签核根版本不可再 calculate/report/review；只能 `close revise`。计算结果
+  绑定 period-job/mapping/rule-map 输入 hash，任一变化都会 `STALE_SOURCE`。
 
 ## 文件导入与 Agent 首次适配
 
@@ -174,7 +272,7 @@ $B fetch --recipe recipe.json --period 2026-10 \
 
 | 项目 | 状态 |
 |---|---|
-| 106 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角与浏览器运行时边界 |
+| 173 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界、账期包导入/字段映射、可签核月结报告与追加式 revision/signoff |
 | 合成 CSV 的 CLI 导入→复算→对账→报告 | ✅ 已端到端运行，重复导入幂等 |
 | 26 个工具的账单/计量维度编目 | ✅ 目录与未知 provider 披露已测试；不代表已接通 |
 | CDP loopback 附着、下载与自动分析 | ✅ 本机 Chrome 156 + 本地 HTTPS 合成账单：下载→入账→`--analyze` 出报告；未做真实平台账单后台验收 |

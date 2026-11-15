@@ -174,10 +174,19 @@ A good month-end pack has four numbers:
 1. invoice total
 2. explained amount
 3. unexplained residual
-4. coverage (explained / invoice)
+4. coverage (explained / invoice) — with a caliber note: if negative lines
+   (credits) or a negative residual are present, net coverage can drift above
+   100% and must be reported as gross/net separately or flagged
+   `not_comparable`, never presented as a normal coverage percentage.
 
 If coverage is 99%+, the residual is a line item. If it is 80%, you have a data
 problem, not a vendor problem.
+
+The residual is an **observed difference**, not a cause. The amount alone
+proves nothing: a cause is only `confirmed` with independent evidence (an
+approved contract price table, a vendor confirmation), stays `unresolved`
+otherwise, and plausible patterns (a tier mismatch, a rounding gap) surface as
+candidate explanations with `basis_refs` and `confidence_kind=heuristic`.
 
 ---
 
@@ -188,22 +197,48 @@ The smallest useful version is three files in, two files out:
 ```bash
 cd examples/ai-invoice-reconciliation
 python3 reconcile.py
-# writes reconciliation.csv and sample-report.md
+# writes reconciliation.csv, reconciliation.json, line-checks.csv and sample-report.md
 ```
 
 Output:
 
-- `reconciliation.csv`: every invoice line, its source, amount and reason code;
-- `sample-report.md`: totals, reconciliation, top 3, missing data.
+- `reconciliation.csv`: every invoice line, its source, amount, kind and
+  **qualification** (`unresolved` / `confirmed` / `not_a_vendor_error`) — no
+  fixed reason codes;
+- `reconciliation.json`: the layered difference model — `observed_difference`
+  facts, `candidate_explanation` entries with `basis_refs` and
+  `confidence_kind=heuristic`, `confirmed_explanation` only with declared
+  evidence, `unresolved` as the default state;
+- `line-checks.csv`: row-level cross-checks between two independent sources
+  (usage×prices vs the cost export), plus the invoice usage line checked
+  against the recalculation;
+- `sample-report.md`: totals, reconciliation with qualifications, coverage
+  calibers (gross/net, `not_comparable` when inflated), open differences and
+  the evidence each one is missing.
 
-The demo in this repo runs on synthetic data and asserts the accounting
-identity: `recalc + seats + credits + tax + residual = invoice total`.
+Two rules the checker enforces on itself:
+
+1. **金额事实与原因资格分离** — no cause is inferred from a non-zero
+   difference. In this synthetic demo the generator declares its injected
+   scenario in `ground-truth.json` under an explicit `synthetic_ground_truth`
+   label, which is the only way the residual reaches `confirmed` here; that
+   declaration is a synthetic convenience, never real independent evidence.
+   The cache gap is deliberately kept multi-candidate (rounding / time window
+   / async revision), because row-level amounts cannot separate them.
+2. **恒等式只是 sanity，不是证明** — the accounting identity
+   `recalc + seats + credits + tax + residual = invoice total` holds by
+   definition of the residual; correctness evidence comes from the row-level
+   checks in `line-checks.csv`. If a row disagrees, the identity still holds
+   and the mismatch is what gets reported.
 
 ---
 
 ## 10. What this does not prove
 
 - It does not prove the vendor overcharged.
+- It does not fix a cause on any difference: without independent evidence the
+  qualification stays `unresolved`, and `supplier_dispute_candidate` is a
+  follow-up state, not a verdict.
 - It does not compute total AI TCO; tokens are often only a third of it.
 - It does not replace a signed-off close. A human signs; the checker prepares.
 - It does not make a bad allocation model good. If the key→team mapping is

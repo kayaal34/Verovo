@@ -67,8 +67,16 @@ Supported formats: `tasks-csv`, `runs-jsonl`, `usage-jsonl`, `bills-csv`,
 
 - **Bill matched to a financialized usage row** (same `charge_id`): kept once as
   usage cost and listed under `reconciled_charges`; an amount disagreement is
-  recorded as `charge_amount_mismatch` instead of silently picking a side.
-- **Bill with `task_id`**: a direct cost item.
+  recorded as `charge_amount_mismatch` instead of silently picking a side. If
+  the bill names exactly one `task_id` for that charge, the matched usage run is
+  linked to it; if bills disagree, no link is inferred and the usage cost stays
+  unallocated.
+- **Duplicate bill `charge_id`**: the duplicate is listed in `duplicates` and
+  `duplicate_charge`, but only the first representation enters
+  `reconciliation_rows`; a duplicate never becomes a second report line or a
+  second amount.
+- **Bill with `task_id`**: registered as its task even when the bill is matched
+  to usage; unmatched bills become a direct cost item.
 - **Bill with `allocation_rule`**: a shared cost item allocated by the rule.
 - **Bill with neither**: kept as a cost item, but it stays unallocated and the
   case's ROI becomes `null` with the reason `unallocated records make total cost

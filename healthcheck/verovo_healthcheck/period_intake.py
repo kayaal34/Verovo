@@ -305,6 +305,10 @@ def intake(bundle: Path) -> Dict[str, Any]:
     reconciliation_rows: List[Dict[str, Any]] = []
     usage_by_charge = {str(item.get("charge_id")): item for item in usage.values() if item.get("charge_id")}
     seen_bill_charges: set = set()
+    # Bills may name the task for a charge that is also represented by a usage
+    # row.  The run link is applied only after all bills are read and only when
+    # one task is named, so a shared run is never silently pinned to one task.
+    run_task_candidates: Dict[str, set] = {}
     for entry in sources.get("bills") or []:
         path = _source_path(bundle, entry)
         vendor = _text(entry.get("vendor")) or _text(manifest.get("vendor"))
@@ -341,7 +345,6 @@ def intake(bundle: Path) -> Dict[str, Any]:
                 })
                 for field in task_economics.EVIDENCE_FIELDS:
                     charge_row["usage_" + field] = matched_usage.get(field)
-            reconciliation_rows.append(charge_row)
             if charge_id in seen_bill_charges:
                 report["duplicates"].append({"charge_id": charge_id, "source": path.name})
                 _open_item(open_items, "duplicate_charge",
@@ -350,6 +353,10 @@ def intake(bundle: Path) -> Dict[str, Any]:
                 bill_total_complete = file_complete = False
                 continue
             seen_bill_charges.add(charge_id)
+            # Only the booked representation reaches reconciliation rows; a
+            # duplicate must not become a second report line with the first
+            # row's amount.
+            reconciliation_rows.append(charge_row)
             if row.get("amount") in (None, ""):
                 _open_item(open_items, "missing_amount",
                            "bill %s has no amount; amount remains unknown" % charge_id,
@@ -388,6 +395,13 @@ def intake(bundle: Path) -> Dict[str, Any]:
             bill_subtotals[row_currency] = bill_subtotals.get(row_currency, Decimal("0")) + amount
             file_total += amount
             bill_total += amount
+            declared_task_id = _text(row.get("task_id"))
+            if declared_task_id:
+                # The bill line states the task explicitly; that association is
+                # a fact even when the line is matched to a usage row and no
+                # separate cost item is emitted.
+                charge_row["task_id"] = declared_task_id
+                add_task(declared_task_id)
             usage_cost = matched_usage.get("cost") if matched_usage is not None else None
             usage_reconcilable = bool(
                 matched_usage is not None and matched_usage.get("financialized")
@@ -408,6 +422,10 @@ def intake(bundle: Path) -> Dict[str, Any]:
                     charge_row["status"] = "matched"
                     matched_usage["financial_status"] = "matched"
                     report["reconciled_charges"].append(charge_id)
+                matched_run_id = _text(matched_usage.get("run_id"))
+                if declared_task_id and matched_run_id:
+                    run_task_candidates.setdefault(matched_run_id, set()).add(
+                        declared_task_id)
                 continue
             if matched_usage is not None and matched_usage.get("financialized"):
                 # The known bill can be booked once; the unpriced usage remains a
@@ -455,6 +473,22 @@ def intake(bundle: Path) -> Dict[str, Any]:
                           "source_ref": path.name,
                           "review_status": "verified" if file_complete else "pending",
                           "booking_status": "booked" if file_complete else "open"})
+
+    for run_id, candidate_tasks in sorted(run_task_candidates.items()):
+        run = runs.get(run_id)
+        if run is None:
+            continue
+        if _text(run.get("task_id")):
+            # An explicit usage/run task link wins; bills never overwrite it.
+            continue
+        if len(candidate_tasks) > 1:
+            _open_item(
+                open_items, "task_link_ambiguous",
+                "run %s is referenced by bills for tasks %s; no single task link "
+                "is inferred" % (run_id, ", ".join(sorted(candidate_tasks))),
+                domain="finance")
+            continue
+        run["task_id"] = next(iter(candidate_tasks))
 
     for entry in sources.get("outcomes") or []:
         path = _source_path(bundle, entry)
