@@ -71,6 +71,10 @@ Supported formats: `tasks-csv`, `runs-jsonl`, `usage-jsonl`, `bills-csv`,
   the bill names exactly one `task_id` for that charge, the matched usage run is
   linked to it; if bills disagree, no link is inferred and the usage cost stays
   unallocated.
+- **Duplicate bill `charge_id`**: the duplicate is listed in `duplicates` and
+  `duplicate_charge`, but only the first representation enters
+  `reconciliation_rows`; a duplicate never becomes a second report line or a
+  second amount.
 - **Bill with `task_id`**: registered as its task even when the bill is matched
   to usage; unmatched bills become a direct cost item.
 - **Bill with `allocation_rule`**: a shared cost item allocated by the rule.

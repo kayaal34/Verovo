@@ -123,6 +123,14 @@ CASE/
 - **V15 幂等与原始哈希**：重复 ingest 生成逐字节相同的 mapping draft；
   scan 保留原始 sha256 和字节数；源文件后来变化时 ingest 报 `STALE_SOURCE`，
   且不覆盖已记录的原始 hash。变更要走 V-04 revision，不能静默重导。
+- **半开区间落到金额**：`to` 当天与 `from` 之前的行进入
+  `validation.period_outliers`，canonical 不写入这些行，报告把它们列入
+  `period_outlier` open items，不进入 `invoice_total`。
+- **重复行**：同一 `charge_id` 只有首个可入账行进入 reconciliation rows；
+  重复行在 `duplicates`/`duplicate_charge` 中留痕，不进入 V-03 报告行数或
+  金额合计。
+- **V-14 跨平台路径**：除 POSIX 绝对路径、`..`、符号链接越界外，Windows
+  盘符（`C:\...`）、UNC 与反斜杠 `..\...` 也在所有平台拒绝。
 
 ## 4. 覆盖诊断与缺失清单
 

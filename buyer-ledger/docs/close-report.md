@@ -131,14 +131,18 @@ outcomes source 但零行时是 `partial`。
 
 复核不会把任何 `unresolved` 改成 `closed`，也不会自动签核。报告审核区显示
 `reviewed_not_signed`；V-04 才处理正式签核、修订和后续 credit/refund 版本。
+一旦根版本存在 `signoff.json`，`close review/calculate/report` 一律拒绝，
+必须走 `close revise`；签核后的报告与 signoff 字节不再被原地改写。
 
 ## 8. 重放与限制
 
-`calculation.json` 保存 canonical 快照 hash、规则表 hash、规则版本、代码/算法
-版本、四轴和完整 canonical outcome。`report/manifest.json` 保存输入 hash、
-规则版本、算法版本、`calculation_fingerprint`、`output_snapshot_fingerprint`
-和各报告文件 hash。重新 calculate/report 在输入不变时得到相同
-`output_snapshot_fingerprint`（报告中的 `generated_at` 不参与指纹）。
+`calculation.json` 保存 canonical 快照 hash、period-job / mapping-confirmed /
+rule-map 的输入 hash、规则版本、代码/算法版本、四轴和完整 canonical outcome。
+`report/manifest.json` 保存输入 hash、规则版本、算法版本、
+`calculation_fingerprint`、`output_snapshot_fingerprint` 和各报告文件 hash。
+重新 calculate/report 在输入不变时得到相同 `output_snapshot_fingerprint`
+（报告中的 `generated_at` 不参与指纹）。period-job、mapping-confirmed 或
+calculation 内容与记录不符时，report 报 `STALE_SOURCE`，不静默出数。
 
 限制会写入 `limitations`：
 

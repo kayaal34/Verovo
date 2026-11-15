@@ -55,6 +55,11 @@ close-2026-10/
 - `revise` 只写新的 staging/revision 目录；根目录和已存在 revision 不被改写。
 - 根已经是 r1 后，`close calculate` / `close report` / `close review` 会拒绝
   原地重算（`REVIEW_REQUIRED`），必须用 `close revise` 生成新版本。
+- 根版本一旦出现 `signoff.json`，`close review` / `close calculate` /
+  `close report` 一律拒绝（`REVIEW_REQUIRED`），必须 `close revise`；签核后
+  的 report/signoff 字节与指纹保持不变。
+- `calculation.json` 记录 period-job、mapping-confirmed、rule-map 的输入 hash
+  和 calculation fingerprint；任一变化时 `close report` 报 `STALE_SOURCE`。
 - `close signoff` 只新增 `signoff.json`（并更新 revision/index 的签核状态），
   不修改报告、canonical 或已签核结论。
 - 原始来源文件只被复制，不被修改；同一来源的新版本在新 revision 内重新

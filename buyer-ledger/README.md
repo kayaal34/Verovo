@@ -27,7 +27,7 @@
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 当前 167 项测试
+python3 -m unittest discover -s tests -t .     # 当前 173 项测试
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium
@@ -141,6 +141,18 @@ $B close status ./close-2026-10 --revision r1
 - 签核要求 `--by`，记录 scope/source/rule 指纹；无署名不产生 signoff，未决
   项不会被自动改成 closed。详细说明见
   [docs/period-revisions.md](docs/period-revisions.md)。
+
+### 审计后的导入/报告边界（2026-11-15）
+
+- `[from, to)` 越界行只进 `period_outliers` 与 open items，不进入
+  `invoice_total`；重复 `charge_id` 只保留首笔，报告不再按重复 reconciliation
+  行双计。
+- 缺币种的行标记 `excluded_currency_unknown`，总额为 `null`，不默认 USD；
+  缺 unit price/rate rule 时 `rule_repricing_status=partial`、小计为 `null`。
+- 报告带 `invoice_total_status`（complete/partial/unknown）；缺 charge_id、
+  重复行、越界行都会显式降低状态。
+- 已签核根版本不可再 calculate/report/review；只能 `close revise`。计算结果
+  绑定 period-job/mapping/rule-map 输入 hash，任一变化都会 `STALE_SOURCE`。
 
 ## 文件导入与 Agent 首次适配
 
@@ -260,7 +272,7 @@ $B fetch --recipe recipe.json --period 2026-10 \
 
 | 项目 | 状态 |
 |---|---|
-| 167 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界、账期包导入/字段映射、可签核月结报告与追加式 revision/signoff |
+| 173 项单元/回归测试 | ✅ 通过，覆盖金额、账户、币种、修订、定价、解析审批、原子恢复、能力目录、双视角、浏览器运行时边界、账期包导入/字段映射、可签核月结报告与追加式 revision/signoff |
 | 合成 CSV 的 CLI 导入→复算→对账→报告 | ✅ 已端到端运行，重复导入幂等 |
 | 26 个工具的账单/计量维度编目 | ✅ 目录与未知 provider 披露已测试；不代表已接通 |
 | CDP loopback 附着、下载与自动分析 | ✅ 本机 Chrome 156 + 本地 HTTPS 合成账单：下载→入账→`--analyze` 出报告；未做真实平台账单后台验收 |

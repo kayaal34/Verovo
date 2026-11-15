@@ -23,6 +23,11 @@ PeriodRevision record and a delta, and `close signoff` binds a named decision
 to one revision's source/rule fingerprints without rewriting older reports or
 authorizing payment.
 
+Adversarial audit follow-up: half-open rows are now excluded from totals,
+duplicate bill rows cannot become a second report line, unknown currency and
+missing unit prices fail closed, signed roots cannot be rebuilt in place, and
+report replay is bound to period-job/mapping/calculation hashes.
+
 ### Added
 
 - **`buyer-ledger close`**: `init` / `ingest` / `mapping` / `calculate` /
@@ -107,15 +112,36 @@ authorizing payment.
   when the bill is matched to a financialized usage row, and the matched usage
   run is linked only when the bills name exactly one task. Ambiguous run links
   stay unallocated instead of being guessed.
+- **Half-open boundary actually closes the period**: rows at `to` or before
+  `from` are copied into `period_outliers` but no longer written to canonical
+  or `invoice_total`; they appear as `period_outlier` open items/queue entries.
+- **Duplicate representations are not a second line**: `period_intake` now
+  appends a bill row to `reconciliation_rows` only after the duplicate check,
+  so a repeated `charge_id` is flagged but cannot produce a second V-03 line or
+  a self-consistent double-counted identity.
+- **Unknown currency fails closed**: lines without a period currency are
+  `excluded_currency_unknown`; `invoice_total`/`open_difference` become `null`
+  and `invoice_total_status=unknown`, never an assumed USD total.
+- **Signed roots are immutable in place**: `close review`, `close calculate`
+  and `close report` refuse when `signoff.json` exists (`REVIEW_REQUIRED`);
+  report/signoff bytes and fingerprints stay unchanged until a new revision.
+- **Replay binds the actual inputs**: `calculation.json` stores period-job,
+  mapping-confirmed and rule-map hashes plus a calculation fingerprint;
+  `build_report` rejects any mismatch or edited calculation as
+  `STALE_SOURCE`. Missing unit prices produce `rule_repricing_status=partial`
+  and a `null` subtotal instead of `0`.
+- **Cross-platform path rejection**: Windows drive/UNC/backslash traversal
+  paths are denied on POSIX too, alongside existing `..` and symlink checks.
 
 ### Verification
 
-- Buyer-ledger: **167 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 30 V-02
-  acceptance tests covering AC V07–V15, BuyerCloseCase and the CLI + 11 V-03
-  acceptance tests covering AC V16–V23, the review gate and missing-amount
-  discipline + 9 V-04 acceptance tests covering AC V24–V29, PeriodRevision,
-  append-only signoff and the revise/signoff CLI; V-02/V-03/V-04 tests were
-  committed red first).
+- Buyer-ledger: **173 tests pass** (110 pre-V-01 + 7 V-01 adversarial + 31 V-02
+  acceptance tests covering AC V07–V15, BuyerCloseCase, half-open filtering,
+  duplicate booking and cross-platform paths + 16 V-03 acceptance tests
+  covering AC V16–V23, missing currency/amounts, rule-subtotal partiality and
+  replay input hashes + 9 V-04 acceptance tests covering AC V24–V29,
+  PeriodRevision, append-only signoff and the revise/signoff CLI; the relevant
+  V-02/V-03/V-04 tests were committed red first).
 - Healthcheck: **593 tests pass**.
 - Repository root: **59 tests pass**.
 - Python 3.9; synthetic fixtures only; no network calls and no real billing
