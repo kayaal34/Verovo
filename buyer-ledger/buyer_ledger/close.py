@@ -1229,6 +1229,41 @@ def _latest_mtime(paths: List[Path]) -> Optional[str]:
     return datetime.fromtimestamp(max(times), timezone.utc).isoformat(timespec="seconds")
 
 
+
+#: C-01-Lite 状态词表（冻结，见 ai输出/ovo-C01-Lite-最小委托契约-v1-20261115.md）。
+_DELEGATION_STATE = {
+    "created": "NEEDS_INPUT",
+    "needs_input": "NEEDS_INPUT",
+    "needs_review": "NEEDS_REVIEW",
+    "ready": "READY",
+    "report_ready": "PARTIAL",
+    "signed": "PARTIAL",
+    "signed_with_open_items": "PARTIAL",
+    "delivered": "DELIVERED",
+}
+
+
+def delegation_block(*, job_id, task_state, next_actor, next_required,
+                     blocked_code, result_ref, scope, recovery_entry,
+                     open_items=0):
+    """C-01-Lite 最小委托投影：八个字段 + 一句边界。只投影，不改状态。"""
+    mapped = _DELEGATION_STATE.get(str(task_state or ""), "BLOCKED")
+    if mapped in ("READY", "PARTIAL") and int(open_items or 0):
+        mapped = "PARTIAL"
+    return {
+        "task_id": str(job_id or ""),
+        "task_state": mapped,
+        "next_actor": str(next_actor or ""),
+        "next_required_action": str(next_required or ""),
+        "blocked_reason_code": blocked_code,
+        "result_ref": result_ref,
+        "authorization_scope": scope,
+        "recovery_entry": recovery_entry,
+        "delegation_boundary": ("投影只说明这个账期推进到哪一步；签核不等于付款授权，"
+                                "PARTIAL 表示仍有未决事项"),
+    }
+
+
 def build_case(case_dir: Path) -> Dict[str, Any]:
     """Project the close case for reviewers; reads state files, writes nothing."""
     case_dir = Path(case_dir)
@@ -1569,6 +1604,19 @@ def build_case(case_dir: Path) -> Dict[str, Any]:
             "next_period_reusable_rules": reusable,
         },
         "missing_inputs": missing_inputs,
+        "delegation": delegation_block(
+            job_id=job.get("job_id") or case_dir.name,
+            task_state=task_state, next_actor=next_actor,
+            next_required=next_required, blocked_code=blocked_code,
+            result_ref=("report/report.json"
+                        if (case_dir / "report" / "report.json").is_file() else None),
+            scope={"currency": job.get("currency"),
+                   "period": job.get("period"),
+                   "account": {"buyer": job.get("buyer", ""),
+                               "account": job.get("account", "")}},
+            recovery_entry=("buyer-ledger close recover <case> --apply"
+                            if (case_dir / "revisions").is_dir() else None),
+            open_items=len(missing_inputs or [])),
         "c01_status": {
             "task_state": task_state,
             "next_actor": next_actor,
