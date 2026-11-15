@@ -26,6 +26,7 @@ if str(HEALTHCHECK_ROOT) not in sys.path:
     sys.path.insert(0, str(HEALTHCHECK_ROOT))
 
 from buyer_ledger import cli
+from buyer_ledger import close_report
 from buyer_ledger import close_revision
 from buyer_ledger.close import CloseError
 from tests.test_close_report import (
@@ -239,6 +240,23 @@ class SignoffAndRevisionTests(RevisionTestBase):
             self.case, reviewer="controller", approved_scope="v1 accepted")
         root_report = (self.case / "report" / "report.json").read_bytes()
         root_signoff = (self.case / "signoff.json").read_bytes()
+        # A signed root is immutable even before the first revision exists.
+        # Late review/calculate/report must not rebuild the signed report.
+        for operation, kwargs in (
+                (close_report.record_review, {"reviewer": "late-reviewer"}),
+                (close_report.calculate, {}),
+                (close_report.build_report, {})):
+            with self.assertRaises(CloseError) as ctx:
+                operation(self.case, **kwargs)
+            self.assertEqual("REVIEW_REQUIRED", ctx.exception.code)
+        with self.assertRaises(SystemExit) as ctx:
+            self.run_cli(["close", "review", str(self.case),
+                          "--by", "late-reviewer"])
+        self.assertEqual(2, ctx.exception.code)
+        self.assertEqual(root_report,
+                         (self.case / "report" / "report.json").read_bytes())
+        self.assertEqual(root_signoff,
+                         (self.case / "signoff.json").read_bytes())
         revised = self.revised_bundle(self.full_bills(amount="30.00"),
                                       name="v2")
         result = close_revision.revise(self.case, bundle=revised,

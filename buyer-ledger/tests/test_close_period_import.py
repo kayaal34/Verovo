@@ -223,6 +223,15 @@ class ImportValidationTests(CloseCaseTestBase):
         self.assertEqual(1, len(report["duplicates"]))
         self.assertEqual("20.00", report["reconciliation"]["billed_subtotal"],
                          "the duplicated charge is booked once, not twice")
+        from buyer_ledger import close_report
+        close_report.calculate(self.case)
+        close_report_payload = close_report.build_report(self.case)
+        self.assertEqual("20.00",
+                         close_report_payload["amounts"]["invoice_total"],
+                         "the V-03 report must not re-count the duplicate charge")
+        self.assertEqual(1, len(close_report_payload["line_reconciliation"]))
+        self.assertEqual("partial",
+                         close_report_payload["amounts"]["invoice_total_status"])
 
     def test_v14_path_traversal_is_denied(self):
         outside = self.root / "outside.csv"
@@ -250,6 +259,21 @@ class ImportValidationTests(CloseCaseTestBase):
         with self.assertRaises(CloseError) as ctx:
             ingest(self.case, bundle=self.bundle)
         self.assertEqual("POLICY_DENIED", ctx.exception.code)
+
+    def test_v14_windows_style_paths_are_denied(self):
+        for index, relative in enumerate((r"C:\secret.csv", r"..\outside.csv")):
+            case = self.root / ("win-case-%d" % index)
+            # A literal file with that name inside the bundle must not make a
+            # Windows-style path look relative and safe on POSIX.
+            (self.bundle / relative).write_text(BILLS_CSV, encoding="utf-8")
+            job = _job(sources=[{"role": "bills", "path": relative,
+                                 "control_domain": "vendor"}])
+            self.write_bundle(job=job, bills=None, usage=None)
+            init_case(case, job_path=self.bundle / "period-job.json")
+            with self.assertRaises(CloseError) as ctx:
+                ingest(case, bundle=self.bundle)
+            self.assertEqual("POLICY_DENIED", ctx.exception.code,
+                             relative)
 
     def test_v15_reingest_is_idempotent_and_keeps_original_hash(self):
         self.write_bundle()
@@ -412,6 +436,20 @@ class MappingAndCanonicalTests(CloseCaseTestBase):
         self.assertEqual({"ch-edge-a", "ch-edge-b"}, {row["id"] for row in outliers})
         reason = next(row for row in outliers if row["id"] == "ch-edge-a")["reason"]
         self.assertIn("half-open", reason)
+        # Flagging is not enough: the out-of-period rows must not be booked.
+        from buyer_ledger import close_report
+        confirm_mapping(self.case, reviewer="finance")
+        close_report.calculate(self.case)
+        report = close_report.build_report(self.case)
+        self.assertEqual("20.00", report["amounts"]["invoice_total"])
+        self.assertEqual("partial", report["amounts"]["invoice_total_status"])
+        self.assertEqual(1, len(report["line_reconciliation"]))
+        queue_text = " ".join(
+            "%s %s" % (item.get("kind"), item.get("detail"))
+            for item in report["open_items"])
+        self.assertIn("period_outlier", queue_text)
+        self.assertIn("ch-edge-a", queue_text)
+        self.assertIn("ch-edge-b", queue_text)
 
     def test_coverage_diagnostics_distinguish_four_categories(self):
         shared = (

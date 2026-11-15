@@ -279,6 +279,47 @@ class AmountInvariantTests(CloseReportTestBase):
         kinds = {item["kind"] for item in report["open_items"]}
         self.assertIn("missing_invoice_lines", kinds)
 
+    def test_missing_currency_is_unknown_not_usd(self):
+        bills = (BILLS_HEADER
+                 + "ch-1,20.00,,1000,0.020,api-request,t1,2026-10-05,,\n")
+        report = self.report(
+            sources=[_source("bills", "bill-export.csv")], bills=bills)
+        self.assertIsNone(report["amounts"]["invoice_total"])
+        self.assertIsNone(report["amounts"]["open_difference"])
+        self.assertEqual("unknown",
+                         report["amounts"]["invoice_total_status"])
+        self.assertEqual("not_comparable",
+                         report["coverage"]["amount"]["status"])
+        line = report["line_reconciliation"][0]
+        self.assertEqual("excluded_currency_unknown", line["classification"])
+        self.assertFalse(line["included_in_invoice_total"])
+        kinds = {item["kind"] for item in report["open_items"]}
+        self.assertIn("currency_unknown", kinds)
+
+    def test_missing_unit_price_keeps_rule_subtotal_unknown(self):
+        bills = (BILLS_HEADER
+                 + "ch-1,20.00,USD,1000,,,t1,2026-10-05,,\n")
+        report = self.report(
+            sources=[_source("bills", "bill-export.csv")], bills=bills)
+        self.assertIsNone(report["amounts"]["rule_repriced_subtotal"])
+        self.assertEqual("partial",
+                         report["amounts"]["rule_repricing_status"])
+        self.assertIsNone(report["line_reconciliation"][0]["expected_amount"])
+
+    def test_missing_charge_id_marks_invoice_partial(self):
+        bills = (
+            BILLS_HEADER
+            + "ch-1,20.00,USD,1000,0.020,api-request,t1,2026-10-05,,\n"
+            + ",5.00,USD,250,0.020,api-request,t2,2026-10-06,,\n"
+        )
+        report = self.report(
+            sources=[_source("bills", "bill-export.csv")], bills=bills)
+        self.assertEqual("20.00", report["amounts"]["invoice_total"])
+        self.assertEqual("partial",
+                         report["amounts"]["invoice_total_status"])
+        kinds = {item["kind"] for item in report["open_items"]}
+        self.assertIn("missing_charge_id", kinds)
+
     def test_v22_credit_tax_and_unapplied_refund_are_not_savings(self):
         bills = (
             BILLS_HEADER
@@ -358,6 +399,52 @@ class ReplayTests(CloseReportTestBase):
         self.assertTrue(any("single currency" in item
                             for item in report["limitations"]))
         self.assertTrue(any("FX" in item for item in report["limitations"]))
+
+    def test_v23_job_and_mapping_changes_are_stale(self):
+        self.make_case(
+            sources=[_source("bills", "bill-export.csv"),
+                     _source("usage", "usage-export.jsonl")],
+            bills=self.full_bills(),
+            usage=USAGE)
+        close_report.calculate(self.case)
+        close_report.build_report(self.case)
+        job_path = self.case / "period-job.json"
+        original_job = job_path.read_bytes()
+        job = json.loads(original_job.decode("utf-8"))
+        job["currency"] = "EUR"
+        job_path.write_text(json.dumps(job, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaises(CloseError) as ctx:
+            close_report.build_report(self.case)
+        self.assertEqual("STALE_SOURCE", ctx.exception.code)
+        job_path.write_bytes(original_job)
+
+        mapping_path = self.case / "intake" / "mapping-confirmed.json"
+        original_mapping = mapping_path.read_bytes()
+        mapping = json.loads(original_mapping.decode("utf-8"))
+        mapping["confirmed_by"] = "late-change"
+        mapping_path.write_text(json.dumps(mapping, indent=2) + "\n",
+                                encoding="utf-8")
+        with self.assertRaises(CloseError) as ctx:
+            close_report.build_report(self.case)
+        self.assertEqual("STALE_SOURCE", ctx.exception.code)
+        mapping_path.write_bytes(original_mapping)
+
+    def test_v23_tampered_calculation_is_stale(self):
+        self.make_case(
+            sources=[_source("bills", "bill-export.csv"),
+                     _source("usage", "usage-export.jsonl")],
+            bills=self.full_bills(),
+            usage=USAGE)
+        close_report.calculate(self.case)
+        close_report.build_report(self.case)
+        calc_path = self.case / "calculation.json"
+        calc = json.loads(calc_path.read_text(encoding="utf-8"))
+        calc["outcome"]["intake_report"]["reconciliation_rows"][0][
+            "bill_amount"] = "25.00"
+        calc_path.write_text(json.dumps(calc, indent=2) + "\n", encoding="utf-8")
+        with self.assertRaises(CloseError) as ctx:
+            close_report.build_report(self.case)
+        self.assertEqual("STALE_SOURCE", ctx.exception.code)
 
 
 class ReviewGateTests(CloseReportTestBase):
