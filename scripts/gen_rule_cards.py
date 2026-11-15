@@ -66,6 +66,25 @@ _PAGE = """<!doctype html>
 <link rel="stylesheet" href="../light.css">
 <style>{css}</style>
 <link rel="canonical" href="https://roy-tong.github.io/Verovo/rules/index.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Verovo">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{desc}">
+<meta property="og:url" content="https://roy-tong.github.io/Verovo/rules/index.html">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{desc}">
+<script type="application/ld+json">
+{{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "{title}",
+  "description": "{desc}",
+  "url": "https://roy-tong.github.io/Verovo/rules/index.html",
+  "inLanguage": "en",
+  "isPartOf": {{"@type": "WebSite", "name": "Verovo", "url": "https://roy-tong.github.io/Verovo/"}}
+}}
+</script>
 </head>
 <body>
 <header class="snav">
