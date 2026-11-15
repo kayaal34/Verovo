@@ -448,6 +448,35 @@ def _parse_control_domains(values):
     return domains
 
 
+def _draft_text(value):
+    return str(value).strip() if isinstance(value, (str, int, float)) else ""
+
+
+def _pending_control_domains(draft):
+    """Roles whose control domain is still the unresolved sentinel.
+
+    The draft already records each source's control domain, so the preview can
+    name the ``--control-domain`` flags the confirm step needs instead of
+    printing a command the tool will refuse.
+    """
+    pending = set()
+    for role, entry in (draft.get("sources") or {}).items():
+        entries = entry if isinstance(entry, list) else [entry]
+        for item in entries:
+            if isinstance(item, dict) and (
+                    item.get("control_domain")
+                    not in close_mod.RESOLVED_CONTROL_DOMAINS):
+                pending.add(role)
+    return sorted(pending)
+
+
+def _confirm_command(case, pending):
+    command = "close mapping %s --confirm --review-by <reviewer>" % case
+    for role in pending:
+        command += " --control-domain %s=<vendor|buyer>" % role
+    return command
+
+
 def cmd_close_mapping(args):
     if not args.confirm:
         path = args.case.rstrip("/") + "/intake/mapping-draft.json"
@@ -464,9 +493,19 @@ def cmd_close_mapping(args):
             for item in entries:
                 print("  %s: %s -> %s" % (role, item.get("path"),
                                           item.get("columns") or {}))
-        print("open items: %d" % len(draft.get("open_items") or []))
-        print("confirm with: close mapping %s --confirm --review-by <reviewer>"
-              % args.case)
+        open_items = draft.get("open_items") or []
+        print("open items: %d" % len(open_items))
+        for item in open_items:
+            location = _draft_text(item.get("source"))
+            if _draft_text(item.get("field")):
+                location = "%s / %s" % (location, item.get("field"))
+            print("  - %s: %s" % (location or "？", item.get("detail")
+                                  or item.get("kind") or ""))
+        pending = _pending_control_domains(draft)
+        if pending:
+            print("control domain pending for %s; confirm needs an explicit "
+                  "--control-domain role=vendor|buyer for each" % ", ".join(pending))
+        print("confirm with: %s" % _confirm_command(args.case, pending))
         return
     confirmation = close_mod.confirm_mapping(
         args.case, reviewer=args.review_by,
@@ -475,6 +514,14 @@ def cmd_close_mapping(args):
     print("mapping confirmed by %s (%s)"
           % (confirmation["confirmed_by"], confirmation["attestation"]))
     print("canonical: %s/canonical" % args.case)
+    gaps = ["%s.%s" % (role, field)
+            for role, entry in (confirmation.get("sources") or {}).items()
+            for fields in entry.get("pending_fields_approved_as_gaps") or []
+            for field in fields or []]
+    if gaps:
+        print("approved unmapped fields as gaps: %s" % ", ".join(gaps))
+        print("they stay open items in the report; calculations that need them "
+              "remain blocked until a later revision resolves them")
 
 
 def cmd_close_status(args):

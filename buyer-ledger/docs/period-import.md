@@ -13,7 +13,8 @@ B="python3 -m buyer_ledger"
 $B close init ./close-2026-10 --from-job ./bundle/period-job.json
 $B close ingest ./close-2026-10 --bundle ./bundle
 $B close mapping ./close-2026-10
-$B close mapping ./close-2026-10 --confirm --review-by finance
+$B close mapping ./close-2026-10 --confirm --review-by finance \
+    --control-domain usage=vendor      # 控制域未裁决时必填；`close mapping` 的预览会给出确切参数
 $B close status ./close-2026-10
 ```
 
@@ -65,8 +66,8 @@ CLI 生成同一份 `period-job.json`。
 | --- | --- |
 | `close init CASE` | 创建 `CASE/period-job.json`；已存在时拒绝覆盖（修订属于 V-04） |
 | `close ingest CASE --bundle DIR` | 扫描、解析、列识别、区间/币种/账户/重复 ID 校验，写 `intake/scan.json` 与 `intake/mapping-draft.json` |
-| `close mapping CASE` | 展示提议的列映射、控制域和 open items；此时还没有 canonical |
-| `close mapping CASE --confirm --review-by NAME [--control-domain role=vendor\|buyer] [--note ...]` | 记录人工确认，并生成 `CASE/canonical/` |
+| `close mapping CASE` | 展示提议的列映射、控制域和 open items（逐条：来源 / 字段 / 原因），并打印带 `--control-domain` 的确认命令；此时还没有 canonical |
+| `close mapping CASE --confirm --review-by NAME [--control-domain role=vendor\|buyer] [--note ...]` | 记录人工确认，并生成 `CASE/canonical/`；仍未映射的必填字段作为缺口写入 `pending_fields_approved_as_gaps` 并在输出里点名 |
 | `close status CASE`（`close show` 同） | 只读 BuyerCloseCase 投影：四完成轴、review queue、missing inputs、C-01 状态 |
 | `close calculate` / `close report` | V-03：运行既有 canonical 重算链并生成六份月结报告对象 |
 | `close review` | V-03：记录署名复核；不关闭未决项、不签核、不授权付款 |

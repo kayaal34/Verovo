@@ -576,6 +576,35 @@ class CloseCliTests(CloseCaseTestBase):
                               .read_text(encoding="utf-8"))
         self.assertEqual("close-2026-10-a", manifest["case_id"])
 
+    def test_mapping_preview_names_open_items_and_required_flags(self):
+        # 账单少 charge_id、usage 控制域未裁决：预览必须点名缺口，并给出可跑的确认命令
+        bills = ("Description,Amount,Currency,Quantity,Unit Price,Rate Plan,Task,"
+                 "Service Date\nch-x,20.00,USD,1000,0.020,api-request,t1,2026-10-05\n")
+        self.write_bundle(bills=bills, job=_job(sources={
+            "bills": {"role": "bills", "path": "bill-export.csv",
+                      "control_domain": "vendor"},
+            "usage": {"role": "usage", "path": "usage-export.jsonl",
+                      "control_domain": "buyer_or_vendor_pending_review"}}))
+        init_case(self.case, job_path=self.bundle / "period-job.json")
+        ingest(self.case, bundle=self.bundle)
+        code, out = self._run(["close", "mapping", str(self.case)])
+        self.assertEqual(0, code)
+        self.assertIn("bill-export.csv / charge_id", out)
+        self.assertIn("control domain pending for usage", out)
+        self.assertIn("--control-domain usage=", out)
+
+    def test_confirm_reports_the_gaps_it_approved(self):
+        bills = ("Description,Amount,Currency,Quantity,Unit Price,Rate Plan,Task,"
+                 "Service Date\nch-x,20.00,USD,1000,0.020,api-request,t1,2026-10-05\n")
+        self.write_bundle(bills=bills)
+        init_case(self.case, job_path=self.bundle / "period-job.json")
+        ingest(self.case, bundle=self.bundle)
+        code, out = self._run(["close", "mapping", str(self.case), "--confirm",
+                               "--review-by", "finance"])
+        self.assertEqual(0, code)
+        self.assertIn("approved unmapped fields as gaps", out)
+        self.assertIn("bills.charge_id", out)
+
     def test_v04_revision_commands_need_a_ready_period(self):
         # V-04 supersedes the V-02/V-03 revision stubs.  A period that has no
         # calculation/report is still refused before any revision or signoff.

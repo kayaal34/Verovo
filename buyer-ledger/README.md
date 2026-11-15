@@ -107,8 +107,9 @@ B="python3 -m buyer_ledger"
 
 $B close init ./close-2026-10 --from-job ./bundle/period-job.json
 $B close ingest ./close-2026-10 --bundle ./bundle
-$B close mapping ./close-2026-10                 # 看列映射/控制域/待审项
-$B close mapping ./close-2026-10 --confirm --review-by finance
+$B close mapping ./close-2026-10                 # 列映射 + open items 明细 + 可复制的确认命令
+$B close mapping ./close-2026-10 --confirm --review-by finance \
+    --control-domain usage=vendor                # 控制域未裁决时必填；预览会打印确切参数
 $B close status ./close-2026-10                  # BuyerCloseCase 只读投影
 ```
 
@@ -116,6 +117,9 @@ $B close status ./close-2026-10                  # BuyerCloseCase 只读投影
   一个精确总额。时区与账单展示口径一致。
 - 货币混合、有效期不覆盖账期的价格表、越界路径/符号链接都会被拒绝；
   重复 charge/usage 只入账一次；未审核映射不能生成 canonical。
+- 预览逐条打印 open items（来源 / 字段 / 原因），并在控制域未裁决时给出带
+  `--control-domain` 的完整确认命令；确认输出会点名被当作缺口接受的字段
+  （记入 `pending_fields_approved_as_gaps`，计算与报告里仍是 open item）。
 - vendor export 始终是 vendor-controlled（即使买方本地下载）；两份 vendor
   导出不能变成 `Buyer Verified`。invoice/OCR 只登记为 `unreviewed`、
   `unbooked` 文档，不凭文本抽取入账。
