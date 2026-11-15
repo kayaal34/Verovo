@@ -1143,10 +1143,65 @@ def _parent_control_domains(parent_dir: Path,
     return domains
 
 
+# ---------------------------------------------------------------------------
+# V-07：同一账期的跨进程互斥
+# ---------------------------------------------------------------------------
+
+CASE_LOCK_NAME = ".close.lock"
+
+
+def _case_lock(case_dir):
+    """独占本账期：两个进程同时 revise/signoff 时后来者得到明确冲突。
+
+    journal 解决的是"单进程崩溃后能恢复"，不解决两个进程同时写同一个 rN /
+    同一个签核三件套。这里用 flock 非阻塞独占；拿不到锁就 fail closed，
+    不排队、不猜测谁赢。
+    """
+    import contextlib
+
+    @contextlib.contextmanager
+    def locked():
+        case = Path(case_dir)
+        case.mkdir(parents=True, exist_ok=True)
+        path = case / CASE_LOCK_NAME
+        handle = open(path, "a+")
+        try:
+            try:
+                import fcntl
+            except ImportError:  # Windows：退化成 O_EXCL 锁文件
+                fcntl = None
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    raise CloseError(
+                        "REVIEW_REQUIRED",
+                        "并发冲突：另一个进程正在处理这个账期（%s）。"
+                        "等它结束后重跑；不要并行修订或签核同一个账期。" % path.name)
+            yield
+        finally:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+
+    return locked()
+
+
 def revise(case_dir: Path, *, bundle: Path = None, source: Path = None,
            role: str = "", reason: str = "", reviewer: str,
            control_domains: Dict[str, str] = None) -> Dict[str, Any]:
     """Create a new independent revision; same input is a no-op."""
+    with _case_lock(case_dir):
+        return _revise_locked(case_dir, bundle=bundle, source=source, role=role,
+                              reason=reason, reviewer=reviewer,
+                              control_domains=control_domains)
+
+
+def _revise_locked(case_dir: Path, *, bundle: Path = None, source: Path = None,
+                   role: str = "", reason: str = "", reviewer: str,
+                   control_domains: Dict[str, str] = None) -> Dict[str, Any]:
     case_dir = Path(case_dir)
     reviewer = _text(reviewer)
     if not reviewer:
@@ -1663,6 +1718,16 @@ def signoff(case_dir: Path, *, reviewer: str, approved_scope: str = "",
             reservations: List[str] = None, note: str = "",
             revision_id: str = "") -> Dict[str, Any]:
     """Record a named period signoff; never mutates the report or closes items."""
+    with _case_lock(case_dir):
+        return _signoff_locked(case_dir, reviewer=reviewer,
+                               approved_scope=approved_scope,
+                               reservations=reservations, note=note,
+                               revision_id=revision_id)
+
+
+def _signoff_locked(case_dir: Path, *, reviewer: str, approved_scope: str = "",
+                    reservations: List[str] = None, note: str = "",
+                    revision_id: str = "") -> Dict[str, Any]:
     case_dir = Path(case_dir)
     ensure_recovered(case_dir, strict=True)
     reviewer = _text(reviewer)
