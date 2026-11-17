@@ -1,0 +1,164 @@
+{
+  "schema": "verovo.golden-chain-acceptance/1",
+  "product": "verovo-buyer-ledger",
+  "chain": "账单页面/截图/粘贴文本 → OCR/草稿候选 → 字段级校验与人工复核 → book 导出 → close 独立复算 → 月结报告与例外处置",
+  "generated_at": "2026-11-17T01:19:40+00:00",
+  "runner": "buyer-ledger/scripts/ocr-golden-chain-acceptance.py",
+  "replay": "cd buyer-ledger && python3 scripts/ocr-golden-chain-acceptance.py",
+  "boundary": "synthetic fixture acceptance only: no live external read, no real OCR engine quality claim, no payment; signoff in the close chain still does not authorize payment",
+  "entries": [
+    {
+      "case_id": "paste-e2e",
+      "user_intent": "把一张粘贴文本的供应商账单核验到月结（字段复核+独立复算+报告）",
+      "input": "pasted invoice text (synthetic fixture)",
+      "expected_terminal_state": "DELIVERED（候选 booked；close 链完成报告与署名复核）",
+      "real_side_effect": "本地文件写入：候选草稿、bills 导出、period-job、canonical、六份报告对象；无网络、无付款",
+      "receipt": {
+        "candidate": "cand-0001",
+        "draft_terminal_state": "BLOCKED_USER_INPUT",
+        "draft_queue_size": 5,
+        "bills_export_sha256": "5aa694ea9c0b1819c0ffc20239a9d4d70084bb1c5e00ddfba9e5d7bde8f64ddf",
+        "invoice_document_sha256": "605218098786b5719938109c62dce4f2fbc121ed7315a5e306d7767b1bc626a9",
+        "report_finance": "blocked",
+        "review_attestation": "attested_by_declaration",
+        "payment_authorization": false
+      },
+      "observed_outcome": {
+        "ocr_draft_auto_booked": false,
+        "invoice_total": "20.00",
+        "open_difference": "0",
+        "buyer_verified": "UNPROVABLE",
+        "invoice_reconciled": "PASS",
+        "open_items_with_disposition": 3,
+        "unresolved_kept_open_by_review": 3
+      },
+      "evidence_paths": [
+        "tests/test_bill_candidate.py::GoldenChainEndToEndTests::test_paste_path_reaches_month_end_close",
+        "buyer_ledger/bill_candidate.py",
+        "buyer_ledger/buyer_ledger/close_report.py"
+      ],
+      "evidence_grade": "synthetic（合成夹具，本地全链；不是 live-external）"
+    },
+    {
+      "case_id": "screenshot-e2e",
+      "user_intent": "把一张账单截图（本地 Vision OCR 产出）核验到月结，字段能回到截图区域",
+      "input": "synthetic png + injected verovo.ocr-lines/1 (no real OCR engine needed)",
+      "expected_terminal_state": "DELIVERED（同上；关键字段带 bbox 证据）",
+      "real_side_effect": "同 paste 路径；截图逐字节保留并作为 unreviewed 文档进入 canonical documents",
+      "receipt": {
+        "candidate": "cand-0002",
+        "amount_evidence_kind": "image_region",
+        "amount_evidence_bbox": [
+          0.08,
+          0.1,
+          0.4,
+          0.05
+        ],
+        "bills_export_sha256": "049ac1b1090691974080286a2879845b090887567de584e45d0afbdc6c0d7277",
+        "invoice_document_sha256": "0ad14e5a8ccc2c9e0a4d05095f31024b38a3c13799ef87fe6302d7e1b79d2481"
+      },
+      "observed_outcome": {
+        "ocr_draft_auto_booked": false,
+        "invoice_total": "20.00",
+        "document_stays_unreviewed": true,
+        "invoice_role_not_a_ledger_source": true
+      },
+      "evidence_paths": [
+        "tests/test_bill_candidate.py::GoldenChainEndToEndTests::test_screenshot_path_reaches_month_end_close",
+        "scripts/ocr_image.swift"
+      ],
+      "evidence_grade": "synthetic（注入 OCR 结果；真实 Vision 质量未在此验收）"
+    },
+    {
+      "case_id": "bad-ocr",
+      "user_intent": "乱码截图不应变成假精确账单",
+      "expected_terminal_state": "BLOCKED_USER_INPUT（bad_ocr，给出唯一用户行动）",
+      "real_side_effect": "草稿保留在候选库，字段全部为空，不产生任何账本行",
+      "receipt": {
+        "candidate": "cand-0003",
+        "status": "blocked_user_input",
+        "reason": "bad_ocr"
+      },
+      "observed_outcome": {
+        "terminal_state": "BLOCKED_USER_INPUT",
+        "user_action_given": true,
+        "fields_all_empty": true
+      },
+      "evidence_paths": [
+        "tests/test_bill_candidate.py::IntakeDraftTests::test_bad_ocr_blocks_with_user_action_and_invents_nothing"
+      ],
+      "evidence_grade": "synthetic"
+    },
+    {
+      "case_id": "duplicate-invoice",
+      "user_intent": "同一张发票（同 vendor+invoice_no）不得双计",
+      "expected_terminal_state": "BLOCKED（REVIEW_REQUIRED；第二张拒入账）",
+      "real_side_effect": "第一张已入账的 bills 导出保持唯一；第二次 book 被拒绝",
+      "receipt": {
+        "duplicate_of": [
+          "cand-0001"
+        ],
+        "refusal_code": "REVIEW_REQUIRED"
+      },
+      "observed_outcome": {
+        "second_booking_refused": true,
+        "refusal": "REVIEW_REQUIRED: invoice inv-2026-1023 of vendor-1 is already booked as cand-0001; a duplicate invoice never double-books — dispute it through the close report"
+      },
+      "evidence_paths": [
+        "tests/test_bill_candidate.py::IntakeDraftTests::test_duplicate_invoice_no_never_double_books"
+      ],
+      "evidence_grade": "synthetic"
+    },
+    {
+      "case_id": "no-auto-booking",
+      "user_intent": "OCR/粘贴草稿不得自动入账（高置信也不行）",
+      "expected_terminal_state": "BLOCKED_USER_INPUT（review_pending；人工先复核）",
+      "real_side_effect": "只产生候选草稿文件；无 bills 导出、无 period-job",
+      "receipt": {
+        "candidate": "cand-0001",
+        "terminal": {
+          "terminal_state": "BLOCKED_USER_INPUT",
+          "reason": "review_pending",
+          "user_action": "review the queued fields (bill-candidate review ... --field <name> --value <value> --by <reviewer>), then book explicitly with bill-candidate book --by",
+          "queue_size": 5
+        }
+      },
+      "observed_outcome": {
+        "booking_refused_before_review": true
+      },
+      "evidence_paths": [
+        "tests/test_bill_candidate.py::IntakeDraftTests::test_ocr_draft_is_never_booked_automatically"
+      ],
+      "evidence_grade": "synthetic"
+    },
+    {
+      "case_id": "requires-procurement",
+      "user_intent": "要求付费云 OCR 引擎时不得静默失败或代购",
+      "expected_terminal_state": "BLOCKED_USER_INPUT（requires_procurement）",
+      "real_side_effect": "无网络调用、无采购；只输出 §5 结构化 JSON",
+      "receipt": {
+        "terminal_state": "BLOCKED_USER_INPUT",
+        "reason": "requires_procurement",
+        "item": "a paid cloud OCR engine is required by --engine paid-cloud-ocr and is not procured",
+        "why": "the local chain only uses free local inputs: pasted text, a text file, or macOS Vision on a screenshot; Verovo never buys or subscribes on the user's behalf",
+        "user_action": "procure the OCR API and provide its output yourself via --ocr-json, or use the free paths: --text/--paste or --image with the local Vision runner",
+        "alternatives": [
+          "paste the bill text",
+          "screenshot + local Vision OCR",
+          "precompute the OCR result and pass --ocr-json",
+          "narrow the period and type the key fields manually"
+        ],
+        "transaction_executed": false
+      },
+      "observed_outcome": {
+        "transaction_executed": false,
+        "candidate_created": false
+      },
+      "evidence_paths": [
+        "tests/test_bill_candidate.py::IntakeDraftTests::test_requires_procurement_is_a_structured_branch",
+        "docs/delivery-contract.json"
+      ],
+      "evidence_grade": "synthetic"
+    }
+  ]
+}

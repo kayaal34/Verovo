@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+V-08 (OCR bill golden chain): `bill-candidate add/review/book` opens the
+review-mandated intake channel — a bill screenshot (local Vision OCR),
+pasted text, or injected OCR lines becomes an unreviewed candidate draft with
+field-level evidence (bbox region or text span + confidence per
+vendor/invoice_no/period/currency/amount/line item). Key fields and
+low-confidence/missing-evidence fields queue for named human review; the
+draft never books itself, and booking is an explicit `--by` act exporting a
+bills source (row-level provenance back to the candidate), the verbatim
+document, and a `verovo.period-job/1` for the existing close chain. Bad OCR
+ends BLOCKED_USER_INPUT with one user action and zero invented values; a
+duplicate invoice_no refuses to double-book; `--engine paid-cloud-ocr`
+returns the §5 `requires_procurement` JSON without any transaction. UNPROVABLE
+stays a verification conclusion in the close report, never a delivery terminal
+state. Acceptance: 26 new tests plus the replayable log
+`buyer-ledger/docs/ocr-golden-chain-acceptance-20261117.json`.
+
 V-01 (differential cause qualification): an amount difference and its cause
 are now separate claims in the ai-invoice-reconciliation example; no cause is
 inferred from a non-zero difference alone.

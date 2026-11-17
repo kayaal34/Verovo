@@ -20,8 +20,9 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
-from . import browser, catalog as catalog_mod, close as close_mod, ingest as ingest_mod, reconcile as recon_mod, report as report_mod
+from . import bill_candidate as bc, browser, catalog as catalog_mod, close as close_mod, ingest as ingest_mod, reconcile as recon_mod, report as report_mod
 from .llm import LLMClient, LLMError
 from .model import LedgerError, PricingPolicy
 from .store import LedgerStore
@@ -419,6 +420,121 @@ def cmd_close_init(args):
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+# ---------------------------------------------------------------------------
+# bill-candidate：OCR/截图/粘贴账单候选（V-08 黄金链入口）
+# ---------------------------------------------------------------------------
+
+DEFAULT_OCR_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "ocr_image.swift"
+
+
+def _bc_print_candidate(candidate):
+    payload = bc.projection(candidate)
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print("candidate: %s（%s）" % (payload["candidate_id"], payload["status"]))
+    terminal = payload["terminal"]
+    print("terminal_state: %s（%s）" % (terminal["terminal_state"], terminal["reason"]))
+    if terminal.get("user_action"):
+        print("next action: %s" % terminal["user_action"])
+    if payload["status"] == "unreviewed":
+        print("OCR 草稿不会自动入账：先复核 %d 个字段，再显式 book"
+              % len(payload["review_queue"]))
+    return payload
+
+
+def cmd_bc_add(args):
+    ocr_lines = None
+    if args.ocr_json:
+        try:
+            doc = json.loads(Path(args.ocr_json).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("--ocr-json must be a readable JSON file: %s" % exc)
+        ocr_lines = doc.get("lines") if isinstance(doc, dict) else doc
+    pasted = None
+    text_path = None
+    if args.paste:
+        pasted = sys.stdin.read()
+    elif args.text:
+        text_path = Path(args.text)
+    engine = args.engine
+    if engine is None:
+        engine = "vision" if args.image else "text"
+    result = bc.add_candidate(
+        args.store, engine=engine, pasted_text=pasted, text_path=text_path,
+        image_path=Path(args.image) if args.image else None,
+        ocr_lines=ocr_lines,
+        ocr_script=Path(args.ocr_script) if args.ocr_script else DEFAULT_OCR_SCRIPT)
+    if result["candidate"] is None:
+        print(json.dumps(result["procurement"], ensure_ascii=False, indent=2))
+        print("requires_procurement：未执行任何采购或网络调用；改用免费路径："
+              "--text/--paste 或 --image + 本地 Vision/--ocr-json")
+        sys.exit(2)
+    payload = _bc_print_candidate(result["candidate"])
+    if payload["status"] == "blocked_user_input":
+        sys.exit(2)
+
+
+def cmd_bc_list(args):
+    rows = bc.list_candidates(args.store)
+    if not rows:
+        print("no candidates in %s；先运行 bill-candidate add" % args.store)
+        return
+    print("%-12s %-18s %-12s %-10s %s" % ("ID", "STATUS", "ENGINE", "QUEUE", "INVOICE"))
+    for row in rows:
+        payload = bc.projection(row)
+        invoice = next((f["value"] for f in row.get("fields", [])
+                        if f["name"] == "invoice_no"), "") or "—"
+        print("%-12s %-18s %-12s %-10d %s" % (
+            payload["candidate_id"], payload["status"], payload.get("engine") or "—",
+            len(payload["review_queue"]), invoice))
+    print("%d candidate(s)；候选只是草稿，入账必须人工 book" % len(rows))
+
+
+def cmd_bc_show(args):
+    candidate = bc.load_candidate(args.store, args.id)
+    # show stays machine-parseable: the human summary lives in add/list/review.
+    print(json.dumps(bc.projection(candidate), ensure_ascii=False, indent=2))
+
+
+def cmd_bc_review(args):
+    candidate = bc.review_field(
+        args.store, args.id, field=args.field, value=args.value,
+        reviewer=args.by, note=args.note)
+    payload = bc.projection(candidate)
+    field = next(f for f in payload["fields"] if f["name"] == args.field)
+    review = field["review"]
+    print("reviewed %s.%s by %s（%s）" % (payload["candidate_id"], args.field,
+                                          review["reviewer"], review["attestation"]))
+    if review["original_value"] != review["value"]:
+        print("value: %s -> %s（OCR 原值保留在 candidate.json）"
+              % (json.dumps(review["original_value"], ensure_ascii=False),
+                 json.dumps(review["value"], ensure_ascii=False)))
+    print("queue left: %d" % len(payload["review_queue"]))
+    if payload["review_queue"]:
+        print("pending: %s" % ", ".join(i["field"] for i in payload["review_queue"]))
+
+
+def cmd_bc_book(args):
+    result = bc.book(
+        args.store, args.id, reviewer=args.by, into=args.into,
+        account=args.account, job_id=args.job_id, buyer=args.buyer,
+        timezone_=args.timezone, usage=args.usage, rule_map=args.rule_map)
+    print("booked by %s（%s；不等于付款授权）" % (result["booked_by"],
+                                                result["attestation"]))
+    print("bills export: %s (sha256 %s)" % (result["export_path"],
+                                            result["export_sha256"][:12]))
+    print("invoice document: %s" % result["document_path"])
+    print("period-job: %s" % result["job_path"])
+    print("next: close init CASE --from-job %s && close ingest CASE --bundle %s"
+          % (result["job_path"], args.into))
+
+
+def cmd_contract(args):
+    path = Path(__file__).resolve().parents[1] / "docs" / "delivery-contract.json"
+    if not path.is_file():
+        raise ValueError("delivery contract missing: %s" % path)
+    print(path.read_text(encoding="utf-8").rstrip("\n"))
+
+
 def cmd_close_ingest(args):
     result = close_mod.ingest(args.case, bundle=args.bundle or None)
     draft = result["mapping_draft"]
@@ -808,6 +924,65 @@ def build_parser():
     sp.add_argument("action", choices=["verify"])
     sp.add_argument("file")
     sp.set_defaults(func=cmd_audit)
+
+    sp = sub.add_parser("contract", help="机器可读交付合同（意图/终态/排除项/采购分支）")
+    sp.add_argument("action", choices=["show"])
+    sp.set_defaults(func=cmd_contract)
+
+    sp = sub.add_parser(
+        "bill-candidate",
+        help="账单截图/OCR/粘贴文本候选：字段级证据草稿→人工复核→book 入月结链（V-08）")
+    bc_sub = sp.add_subparsers(dest="bc_command", required=True)
+
+    sp = bc_sub.add_parser(
+        "add", help="从截图/粘贴文本产出 unreviewed 候选草稿（永不自动入账）")
+    sp.add_argument("store", nargs="?", default="bill-candidates",
+                    help="候选存储目录（默认 ./bill-candidates）")
+    group = sp.add_mutually_exclusive_group()
+    group.add_argument("--text", default="", help="账单文本文件路径")
+    group.add_argument("--paste", action="store_true", help="从 stdin 读粘贴文本")
+    group.add_argument("--image", default="", help="账单截图路径（png/jpg）")
+    sp.add_argument("--engine", choices=bc.ENGINES, default=None,
+                    help="text=本地文本；vision=本地 Vision OCR；"
+                         "paid-cloud-ocr=付费云 OCR（输出 requires_procurement，不购买）")
+    sp.add_argument("--ocr-json", default="",
+                    help="已注入的 OCR 结果（verovo.ocr-lines/1），测试与离线链路用")
+    sp.add_argument("--ocr-script", default="",
+                    help="本地 Vision 运行器路径（默认 scripts/ocr_image.swift）")
+    sp.set_defaults(func=cmd_bc_add)
+
+    sp = bc_sub.add_parser("list", help="列出候选与待复核队列大小")
+    sp.add_argument("store", nargs="?", default="bill-candidates")
+    sp.set_defaults(func=cmd_bc_list)
+
+    sp = bc_sub.add_parser("show", help="候选详情：字段证据、复核状态、终态")
+    sp.add_argument("store", nargs="?", default="bill-candidates")
+    sp.add_argument("id")
+    sp.set_defaults(func=cmd_bc_show)
+
+    sp = bc_sub.add_parser("review", help="人工复核一个字段（可纠正 OCR 值）")
+    sp.add_argument("store", nargs="?", default="bill-candidates")
+    sp.add_argument("id")
+    sp.add_argument("--field", required=True,
+                    help="vendor/invoice_no/period/currency/amount/line_items")
+    sp.add_argument("--value", required=True,
+                    help="确认值；period 接受 YYYY-MM 或 from..to（to 为排除端）")
+    sp.add_argument("--by", required=True, help="复核人（attested_by_declaration）")
+    sp.add_argument("--note", default="")
+    sp.set_defaults(func=cmd_bc_review)
+
+    sp = bc_sub.add_parser("book", help="复核完成后显式入账：导出 bills 源 + period-job")
+    sp.add_argument("store", nargs="?", default="bill-candidates")
+    sp.add_argument("id")
+    sp.add_argument("--by", required=True, help="入账确认人；OCR 草稿永不自行入账")
+    sp.add_argument("--into", required=True, help="目标账期包目录")
+    sp.add_argument("--account", default="", help="job 账户（必填，不猜测）")
+    sp.add_argument("--job-id", default="")
+    sp.add_argument("--buyer", default="")
+    sp.add_argument("--timezone", default="UTC")
+    sp.add_argument("--usage", default="", help="包内 usage 导出文件名（独立复算来源）")
+    sp.add_argument("--rule-map", default="", help="包内规则表文件名")
+    sp.set_defaults(func=cmd_bc_book)
 
     sp = sub.add_parser("close",
                         help="账期包导入、人工字段映射与 BuyerCloseCase（V-02）")
