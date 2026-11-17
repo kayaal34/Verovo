@@ -15,8 +15,12 @@ ends BLOCKED_USER_INPUT with one user action and zero invented values; a
 duplicate invoice_no refuses to double-book; `--engine paid-cloud-ocr`
 returns the §5 `requires_procurement` JSON without any transaction. UNPROVABLE
 stays a verification conclusion in the close report, never a delivery terminal
-state. Acceptance: 26 new tests plus the replayable log
-`buyer-ledger/docs/ocr-golden-chain-acceptance-20261117.json`.
+state. Follow-up hardening keeps every unextracted key field null, preserves the
+image path's exact OCR text and hash, explicitly refuses real Vision OCR on
+non-darwin, and blocks line-total mismatches and mixed-currency close imports.
+Acceptance: 30 targeted candidate/close tests plus the replayable log
+`buyer-ledger/docs/ocr-golden-chain-acceptance-20261117.json` (the log itself is
+from the earlier 26-test synthetic replay, not a live Vision quality claim).
 
 P0.1 (delivery contract): `python3 -m buyer_ledger contract show` prints
 `buyer-ledger/docs/delivery-contract.json` — supported intents, §3.1 delivery

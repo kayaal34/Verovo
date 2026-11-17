@@ -1,8 +1,8 @@
 // Local Vision OCR candidate generator for buyer-ledger bill-candidate add
-// --image (V-08 golden chain front door). Mirrors Askovo's
-// skills/askovo/scripts/ocr_image.swift with two additions the Verovo chain
-// needs: per-line confidence and the normalized bounding box, so every
-// extracted bill field can point back at a region of the screenshot.
+// --image (V-08 golden chain front door). Independent Verovo implementation
+// of the local Vision OCR approach; it has no Askovo import or runtime
+// dependency. Per-line confidence and normalized bounding boxes let every
+// extracted bill field point back at a region of the screenshot.
 //
 // Output: one JSON object per line --
 //   {"text": "...", "confidence": 0.97, "bbox": [x, y, w, h]}

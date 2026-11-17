@@ -2,7 +2,7 @@
   "schema": "verovo.golden-chain-acceptance/1",
   "product": "verovo-buyer-ledger",
   "chain": "账单页面/截图/粘贴文本 → OCR/草稿候选 → 字段级校验与人工复核 → book 导出 → close 独立复算 → 月结报告与例外处置",
-  "generated_at": "2026-11-17T01:19:40+00:00",
+  "generated_at": "2026-11-17T02:57:00+00:00",
   "runner": "buyer-ledger/scripts/ocr-golden-chain-acceptance.py",
   "replay": "cd buyer-ledger && python3 scripts/ocr-golden-chain-acceptance.py",
   "boundary": "synthetic fixture acceptance only: no live external read, no real OCR engine quality claim, no payment; signoff in the close chain still does not authorize payment",

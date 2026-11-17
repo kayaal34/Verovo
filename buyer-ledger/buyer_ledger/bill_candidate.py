@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import csv
 import json
+import platform
 import re
 import shutil
 import subprocess
@@ -302,8 +303,8 @@ def _extract_fields(lines: List[Dict[str, Any]],
                 found.add("amount")
                 # currency lives on the total line: a known three-letter code
                 # adjacent to the number, or an unambiguous symbol. Anything
-                # else stays empty for a human; "$"/"¥" are ambiguous.
-                currency = ""
+                # else stays null for a human; "$"/"¥" are ambiguous.
+                currency = None
                 span = (match.start(2), match.end(2))
                 flags: List[str] = []
                 code = _CURRENCY_RE.search(text, match.end()) or \
@@ -357,7 +358,7 @@ def _extract_fields(lines: List[Dict[str, Any]],
     for name in KEY_FIELDS:
         if name not in found:
             fields.append({
-                "name": name, "value": "" if name != "period" else None,
+                "name": name, "value": None,
                 "confidence": 0.0, "key": True, "flags": ["not_extracted"],
                 "evidence": None, "review": None, "status": "pending_review",
             })
@@ -493,7 +494,18 @@ def _normalized_lines(raw_lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def run_ocr_script(script: Path, image: Path) -> List[Dict[str, Any]]:
-    """Run the local Vision OCR runner (candidate generator, never a booker)."""
+    """Run the local Vision OCR runner (candidate generator, never a booker).
+
+    Vision is a macOS-only adapter. Injected ``verovo.ocr-lines/1`` fixtures
+    remain portable, but a real OCR run on another platform is an explicit
+    unsupported-scope refusal rather than an incidental ``swift`` failure.
+    """
+    if platform.system() != "Darwin":
+        raise CloseError(
+            "UNSUPPORTED_SCOPE",
+            "local Vision OCR is unavailable on non-darwin (%s); use --text/"
+            "--paste or inject an offline OCR result with --ocr-json"
+            % platform.system())
     script = Path(script)
     if not script.is_file():
         raise CloseError(
@@ -629,6 +641,8 @@ def add_candidate(store: Path, *, engine: str = "text", pasted_text: str = None,
             "kind": "image" if from_image else "text",
             "file": source_name,
             "sha256": None,  # filled after write
+            "raw_text": "ocr.txt" if from_image else source_name,
+            "raw_text_sha256": None,  # filled after write
             "ocr_payload": "ocr.json" if from_image else None,
         },
         "fields": fields,
@@ -644,7 +658,14 @@ def add_candidate(store: Path, *, engine: str = "text", pasted_text: str = None,
         (directory / "ocr.json").write_text(
             json.dumps({"schema": OCR_LINES_SCHEMA, "lines": lines_payload},
                        indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        # Preserve the exact normalized text used by field extraction as well
+        # as the source image and OCR coordinates/confidence payload.
+        (directory / "ocr.txt").write_text(
+            "".join(_text(line["text"]) + "\n" for line in lines_payload),
+            encoding="utf-8")
     candidate["source"]["sha256"] = _sha256_file(directory / source_name)
+    candidate["source"]["raw_text_sha256"] = _sha256_file(
+        directory / candidate["source"]["raw_text"])
 
     if status != "blocked_user_input":
         identity = _identity_of(candidate)
@@ -854,6 +875,21 @@ def book(store: Path, candidate_id: str, *, reviewer: str, into: Path,
                          "job — use a fresh bundle or a close revision" % job_path)
 
     items = _field_value(candidate, "line_items") or []
+    if items:
+        try:
+            line_items_sum = sum((Decimal(item["amount"]) for item in items),
+                                 Decimal("0"))
+        except (InvalidOperation, KeyError, TypeError) as exc:
+            raise CloseError(
+                "REVIEW_REQUIRED",
+                "reviewed line items are malformed; correct them before booking"
+            ) from exc
+        if line_items_sum != Decimal(amount):
+            raise CloseError(
+                "REVIEW_REQUIRED",
+                "reviewed line items sum to %s but the reviewed invoice total is "
+                "%s; correct and re-confirm amount/line_items instead of booking "
+                "an OCR mismatch" % (line_items_sum, amount))
     safe_no = _sanitize_name(invoice_no)
     export_name = "%s-invoice.csv" % safe_no
     doc_name = "%s%s" % (safe_no, Path(candidate["source"]["file"]).suffix or ".txt")

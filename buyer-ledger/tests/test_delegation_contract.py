@@ -9,7 +9,7 @@ from pathlib import Path
 from buyer_ledger import cli
 from buyer_ledger import close as close_mod
 
-from .test_close_period_import import BILLS_CSV, RULE_MAP, USAGE_JSONL, _job
+from tests.test_close_period_import import BILLS_CSV, RULE_MAP, USAGE_JSONL, _job
 import tempfile
 
 STATES = {"NEEDS_INPUT", "READY", "NEEDS_REVIEW", "BLOCKED", "PARTIAL", "DELIVERED"}

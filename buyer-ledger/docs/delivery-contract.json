@@ -4,13 +4,20 @@
   "updated_at": "2026-11-17",
   "source": "后续优化评审-20261117 §4.3（Verovo 黄金链）+ §3.1（终态轴）+ §5（采购分支）",
   "promise": "把用户可见的账单、合同和交付证据转成可复核的费用/交付结论；每个范围内条目都有 PASS/FAIL/UNPROVABLE 及处置，例外不会被藏在报告里。",
+  "business_goal": {
+    "product_goal": "站在买方一侧给出第二个可行动的数，并完成逐行费用/交付核验与月结处置",
+    "business_outcomes": ["difference_actioned", "difference_resolved", "close_completed_with_exceptions"],
+    "success_rule": "业务结果只来自独立的差异询问/修正/争议/保留处置或带例外的月结完成记录；报告、OCR页数、签核和UNPROVABLE都不是业务成功",
+    "outcome_status": "not_observed",
+    "note": "合成验收只证明OCR候选到close的产品链，不证明供应商认可、追回或客户业务目标已实现"
+  },
   "supported_intents": [
     {
       "id": "bill_intake_candidate",
       "entry": "bill-candidate add",
-      "description": "账单截图（本地 Vision OCR）或粘贴文本 → 带字段级证据（截图区域/文本 span + 置信度）的 unreviewed 候选草稿",
-      "inputs": ["账单截图 png/jpg", "粘贴文本", "或预计算的 OCR 结果 JSON"],
-      "requires": ["本地文件；无网络、无浏览器依赖"],
+      "description": "账单截图（本地 macOS Vision OCR）或粘贴文本 → 带字段级证据（截图区域/文本 span + 置信度）的 unreviewed 候选草稿",
+      "inputs": ["账单截图 png/jpg（真实 Vision 仅 macOS）", "粘贴文本", "或预计算的 OCR 结果 JSON"],
+      "requires": ["本地文件；无网络、无浏览器依赖", "非 darwin 改用文本或离线 OCR JSON；真实 Vision 明确 UNSUPPORTED_SCOPE"],
       "terminal_states": ["BLOCKED_USER_INPUT", "DELIVERED"],
       "never": ["自动入账", "调用付费 API"]
     },
@@ -74,8 +81,9 @@
   },
   "evidence_requirements": [
     "关键字段必须能回到截图区域（bbox）或文本 span（行号+字符区间+摘录）；缺证据区域即进复核队列，不猜测",
-    "原始截图/文本逐字节保留（sha256 记录），入账导出行携带 source_path/evidence_ref 指回候选",
-    "OCR 置信度低于 0.90 或关键字段缺证据 → 人工复核；高置信也只进 draft，入账必须人工 book",
+    "原始截图/文本逐字节保留（sha256 记录），图片另存实际提取所用 ocr.txt 及 hash；入账导出行携带 source_path/evidence_ref 指回候选",
+    "未提取的关键字段保持 null；OCR 置信度低于 0.90 或关键字段缺证据 → 人工复核；高置信也只进 draft，入账必须人工 book",
+    "行项目加总与确认总额不一致时拒绝 book；混合币种由 close import 拒绝，不换算、不合并",
     "验收字段：user_intent / expected_terminal_state / real_side_effect / receipt / observed_outcome / evidence_paths"
   ],
   "first_interaction": {

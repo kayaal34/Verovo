@@ -107,9 +107,11 @@ CASE/
 - **V10 控制域**：vendor export 即使由买方下载仍是 vendor-controlled；两份
   vendor 导出可以支持 Vendor Reconciled，但 `Buyer Verified` 始终
   `UNPROVABLE`，导入层也不会判 `Delivery Accepted`。
-- **V11 OCR / invoice2data**：最多产出 unreviewed 草稿；V-02 不调用 OCR、
-  不解析文本、不把提取文本变成金额。invoice 文档进入 review queue，不进入
-  账本行。
+- **V11 OCR / invoice2data**：直接以 `invoice` 角色附带的原始文档仍只登记为
+  unreviewed/unbooked；V-02 的 `close ingest` 本身不调用 OCR、不解析文本、不把
+  提取文本变成金额。需要 OCR 时走独立的
+  [bill-candidate 候选链](ocr-golden-chain.md)：关键字段逐一人工确认并显式 `book`
+  后，导出的普通 bills CSV 才能作为账本来源；原始 invoice 文档仍不进入账本行。
 - **V12 价格表有效期**：pricing rule 要带 currency、unit、version 和
   `valid_from`/`valid_to`；有效期不覆盖账期即 `UNSUPPORTED_SCOPE`，拒绝
   重新计价。未声明有效期的规则进入 open items，不能当作已批准。
@@ -157,8 +159,9 @@ CASE/
 
 ## 6. 明确不做
 
-- 不做汇率换算、税/credit/退款推断、多账户合并、PDF/XLSX 解析或 OCR；
-- 不自动签核、不判定付款、不发起供应商争议；
+- `close ingest` 不做汇率换算、税/credit/退款推断、多账户合并、PDF/XLSX 解析或
+  OCR；可选 OCR 只在前述候选入口生成草稿，不在导入时自动入账；
+- 不自动签核、不判定或执行付款/退款、不发起供应商争议；
 - 不把 vendor agreement 当买方独立验证，不把数值一致当计费正确；
 - V-03 的月结报告与审核门禁见 [close-report.md](close-report.md)；
   V-04 的追加式 revision、delta 与 signoff 见

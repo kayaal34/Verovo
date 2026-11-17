@@ -943,7 +943,7 @@ def build_parser():
     group.add_argument("--paste", action="store_true", help="从 stdin 读粘贴文本")
     group.add_argument("--image", default="", help="账单截图路径（png/jpg）")
     sp.add_argument("--engine", choices=bc.ENGINES, default=None,
-                    help="text=本地文本；vision=本地 Vision OCR；"
+                    help="text=本地文本；vision=本地 macOS Vision OCR（非 darwin 明确不可用）；"
                          "paid-cloud-ocr=付费云 OCR（输出 requires_procurement，不购买）")
     sp.add_argument("--ocr-json", default="",
                     help="已注入的 OCR 结果（verovo.ocr-lines/1），测试与离线链路用")

@@ -60,6 +60,30 @@ python3 reconcile.py   # 输出 reconciliation.csv/.json + line-checks.csv + sam
 - 这不是产品完整功能，是“把发票、成本导出、用量导出对到分”的最小可复现件；
   真实账期适配、PDF/XLSX、席位/承诺/汇率仍需按客户材料做。
 
+## 账单截图 / 可见文本候选（V-08）
+
+可选入口不依赖 `invoice2data`：本地文本、macOS Vision 截图 OCR 或调用方提供的
+离线 OCR 行，先生成 `unreviewed` 草稿。真实 Vision 仅支持 macOS；非 darwin
+明确返回 `UNSUPPORTED_SCOPE`，可改用 `--text/--paste` 或 `--ocr-json`。
+
+```bash
+B="python3 -m buyer_ledger"
+$B bill-candidate add ./bill-candidates --text bill.txt
+$B bill-candidate add ./bill-candidates --image shot.png              # macOS Vision
+$B bill-candidate show ./bill-candidates cand-0001                   # 查看字段证据/队列
+$B bill-candidate review ./bill-candidates cand-0001 \
+  --field amount --value 20.00 --by finance                          # 每个关键字段逐一确认
+$B bill-candidate book ./bill-candidates cand-0001 --by finance \
+  --into ./bundle --account acct-1 --usage usage-export.jsonl --rule-map contract-rules.json
+```
+
+草稿保存原始截图/文本及 SHA-256、图片 OCR 的 `ocr.txt`/`ocr.json`、字段 span/bbox
+与置信度；未提取的 `vendor/invoice_no/period/currency/amount` 全为 `null`。所有关键
+字段确认后才允许显式 `book`，导出既有 close 可读的 bills CSV + `period-job.json`。
+坏 OCR、行项目与总额不一致、重复账单和混合币种不会假通过。该入口不自动运行通用
+`recount/review`，不证明 OCR 准确或买方独立性，也不执行/授权付款或退款。完整命令见
+[docs/ocr-golden-chain.md](docs/ocr-golden-chain.md)。
+
 ## 账期包导入与人工字段映射（V-02）
 
 把一份本地账期包（`verovo.period-job/1` + bills/usage 导出 + 已批准规则表）

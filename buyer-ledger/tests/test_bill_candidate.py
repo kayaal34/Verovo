@@ -23,6 +23,7 @@ import json
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HEALTHCHECK_ROOT = REPO_ROOT / "healthcheck"
@@ -156,6 +157,22 @@ class IntakeDraftTests(BillCandidateTestBase):
         self.assertEqual("verovo.ocr-lines/1", ocr["schema"])
         source = self.store / candidate["candidate_id"] / "source.png"
         self.assertEqual(PNG_BYTES, source.read_bytes())
+        self.assertEqual("ocr.txt", candidate["source"]["raw_text"])
+        raw_text = self.store / candidate["candidate_id"] / "ocr.txt"
+        self.assertEqual("".join(line["text"] + "\n" for line in OCR_LINES["lines"]),
+                         raw_text.read_text(encoding="utf-8"))
+        self.assertEqual(64, len(candidate["source"]["raw_text_sha256"]))
+
+    def test_unextracted_key_fields_stay_null_not_empty_or_zero(self):
+        candidate = self.add_pasted("Synthetic visible bill text with no parseable fields")
+        fields = {f["name"]: f for f in candidate["fields"]}
+        for name in bc.KEY_FIELDS:
+            self.assertIsNone(fields[name]["value"], name)
+            self.assertIn("not_extracted", fields[name]["flags"])
+        with self.assertRaises(CloseError) as ctx:
+            bc.book(self.store, candidate["candidate_id"], reviewer="finance",
+                    into=self.bundle, account="acct-1")
+        self.assertEqual("REVIEW_REQUIRED", ctx.exception.code)
 
     def test_ocr_draft_is_never_booked_automatically(self):
         candidate = self.add_pasted()
@@ -268,11 +285,23 @@ class IntakeDraftTests(BillCandidateTestBase):
         self.assertEqual("INPUT_REQUIRED", ctx.exception.code)
         self.assertIn("paste", str(ctx.exception).lower())
 
+    def test_non_darwin_local_vision_is_explicitly_unsupported(self):
+        image = self.root / "shot.png"
+        image.write_bytes(PNG_BYTES)
+        with patch("buyer_ledger.bill_candidate.platform.system", return_value="Linux"), \
+                patch("buyer_ledger.bill_candidate.subprocess.run") as run:
+            with self.assertRaises(CloseError) as ctx:
+                bc.add_candidate(self.store, engine="vision", image_path=image,
+                                 ocr_script=self.root / "ocr_image.swift")
+        self.assertEqual("UNSUPPORTED_SCOPE", ctx.exception.code)
+        self.assertIn("unavailable on non-darwin", str(ctx.exception))
+        run.assert_not_called()
+
     def test_currency_symbol_alone_is_ambiguous_and_queues(self):
         text = INVOICE_TEXT.replace("20.00 USD", "$20.00")
         candidate = self.add_pasted(text)
         fields = {f["name"]: f for f in candidate["fields"]}
-        self.assertEqual("", fields["currency"]["value"])
+        self.assertIsNone(fields["currency"]["value"])
         self.assertIn("ambiguous_symbol", fields["currency"]["flags"])
 
 
@@ -355,6 +384,17 @@ class BookingTests(BillCandidateTestBase):
             bc.book(self.store, candidate["candidate_id"], reviewer="finance",
                     into=self.bundle, account="")
         self.assertEqual("INPUT_REQUIRED", ctx.exception.code)
+
+    def test_reviewed_total_cannot_hide_line_item_sum_mismatch(self):
+        text = INVOICE_TEXT.replace("0.020   20.00", "0.020   21.00")
+        candidate = self.review_all_key_fields(self.add_pasted(text))
+        with self.assertRaises(CloseError) as ctx:
+            bc.book(self.store, candidate["candidate_id"], reviewer="finance",
+                    into=self.bundle, account="acct-1")
+        self.assertEqual("REVIEW_REQUIRED", ctx.exception.code)
+        self.assertIn("21.00", str(ctx.exception))
+        self.assertIn("20.00", str(ctx.exception))
+        self.assertFalse((self.bundle / "period-job.json").exists())
 
 
 class GoldenChainEndToEndTests(BillCandidateTestBase):
@@ -447,6 +487,35 @@ class GoldenChainEndToEndTests(BillCandidateTestBase):
         for item in mismatch:
             self.assertTrue(item["next_evidence"],
                             "difference items need a disposition action")
+
+    def test_reviewed_ocr_multi_currency_never_reaches_a_passing_close(self):
+        self.write_close_inputs()
+        # Keep the approved pricing rule in the invoice's EUR scope so the only
+        # cross-currency conflict is the independently supplied USD usage row.
+        rules = json.loads(json.dumps(RULE_MAP))
+        rules["rules"][2]["currency"] = "EUR"
+        (self.bundle / "contract-rules.json").write_text(
+            json.dumps(rules, indent=2) + "\n", encoding="utf-8")
+        candidate = self.review_all_key_fields(
+            self.add_pasted(INVOICE_TEXT.replace("20.00 USD", "20.00 EUR")))
+        bc.book(self.store, candidate["candidate_id"], reviewer="finance",
+                into=self.bundle, account="acct-1",
+                usage="usage-export.jsonl", rule_map="contract-rules.json")
+        case = self.root / "close-2026-10-multi-currency"
+        init_case(case, job_path=self.bundle / "period-job.json")
+        result = ingest(case, bundle=self.bundle)
+        validation = result["mapping_draft"]["validation"]
+        self.assertTrue(validation["blocked"])
+        self.assertEqual("UNSUPPORTED_SCOPE", validation["blocked_code"])
+        self.assertEqual({"EUR"},
+                         {row["currency"] for row in validation["currencies"]})
+        self.assertIn("USD", validation["blocked_reason"])
+        self.assertIn("EUR", validation["blocked_reason"])
+        with self.assertRaises(CloseError) as ctx:
+            confirm_mapping(case, reviewer="finance-reviewer")
+        self.assertEqual("UNSUPPORTED_SCOPE", ctx.exception.code)
+        self.assertFalse((case / "canonical").exists())
+        self.assertFalse((case / "calculation.json").exists())
 
     def test_unprovable_stays_honest_without_independent_record(self):
         # booked invoice with an approved intake rule but no usage record: the
