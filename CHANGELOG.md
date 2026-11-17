@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.14.0 - 2026-11-18
+
+This release opens the review-mandated intake channel for bills (V-08 OCR
+golden chain: candidate → field review → booked export into close) and makes
+the delivery surface machine-checkable (P0.1 contract, bilingual close
+reports, C-01-Lite delegation). buyer-ledger: 237 tests, healthcheck: 594
+tests, all vectors pass.
+
 
 V-08 (OCR bill golden chain): `bill-candidate add/review/book` opens the
 review-mandated intake channel — a bill screenshot (local Vision OCR),
