@@ -278,10 +278,13 @@ class IntakeDraftTests(BillCandidateTestBase):
         self.assertEqual([], bc.list_candidates(self.store))
 
     def test_vision_engine_without_runner_is_input_required(self):
-        with self.assertRaises(CloseError) as ctx:
-            bc.add_candidate(self.store, engine="vision", image_bytes=PNG_BYTES,
-                             image_name="shot.png", ocr_lines=None,
-                             ocr_script=self.root / "missing.swift")
+        """runner 缺失 → INPUT_REQUIRED。平台门在前：mock darwin 资格后 Linux CI 也走这条路径。"""
+        with patch("buyer_ledger.bill_candidate.platform.system",
+                   return_value="Darwin"):
+            with self.assertRaises(CloseError) as ctx:
+                bc.add_candidate(self.store, engine="vision", image_bytes=PNG_BYTES,
+                                 image_name="shot.png", ocr_lines=None,
+                                 ocr_script=self.root / "missing.swift")
         self.assertEqual("INPUT_REQUIRED", ctx.exception.code)
         self.assertIn("paste", str(ctx.exception).lower())
 
