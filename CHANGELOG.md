@@ -18,6 +18,12 @@ stays a verification conclusion in the close report, never a delivery terminal
 state. Acceptance: 26 new tests plus the replayable log
 `buyer-ledger/docs/ocr-golden-chain-acceptance-20261117.json`.
 
+P0.1 (delivery contract): `python3 -m buyer_ledger contract show` prints
+`buyer-ledger/docs/delivery-contract.json` — supported intents, §3.1 delivery
+terminal states vs verification conclusions, exclusions, the §5 procurement
+template and evidence requirements; consistency tests keep the file, the CLI
+first interaction and the implementation aligned.
+
 V-01 (differential cause qualification): an amount difference and its cause
 are now separate claims in the ai-invoice-reconciliation example; no cause is
 inferred from a non-zero difference alone.
