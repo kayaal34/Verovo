@@ -46,6 +46,18 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(result['lanes']['charges']['verdict'], 'NOT_REVIEWED')
         self.assertEqual(result['lanes']['delivery']['verdict'], 'PASS')
 
+    def test_empty_template_reports_all_missing_scope_fields(self):
+        self.task["scope"] = {key: "" for key in (
+            "buyer", "service", "account_or_task", "period_or_window",
+            "decision", "owner", "due_date")}
+        (self.root / "task.json").write_text(json.dumps(self.task))
+        with self.assertRaises(ValueError) as ctx:
+            review.evaluate(self.root / "task.json")
+        message = str(ctx.exception)
+        for key in ("scope.buyer", "scope.service", "scope.account_or_task",
+                    "scope.period_or_window", "scope.decision", "scope.owner"):
+            self.assertIn(key, message)
+
     def test_missing_lane_criteria_not_a_pass(self):
         self.task['criteria'] = self.task['criteria'][:1]
         self.assertEqual(self.run_review()['lanes']['delivery']['verdict'], 'UNPROVABLE')

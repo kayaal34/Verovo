@@ -107,8 +107,13 @@ def evaluate(task_path, synthetic=False):
     scope = task.get("scope")
     if not isinstance(scope, dict):
         raise ValueError("scope must be an object")
+    missing = []
     for key in ("buyer", "service", "account_or_task", "period_or_window", "decision", "owner"):
-        _text(scope, key)
+        value = scope.get(key)
+        if not isinstance(value, str) or not value.strip():
+            missing.append("scope.%s" % key)
+    if missing:
+        raise ValueError("missing required fields: " + ", ".join(missing))
     criteria = task.get("criteria")
     if not isinstance(criteria, list) or not criteria:
         raise ValueError("add at least one explicit criterion; an empty task is not a review")
