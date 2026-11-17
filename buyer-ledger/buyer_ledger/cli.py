@@ -477,13 +477,63 @@ def cmd_close_mapping(args):
     print("canonical: %s/canonical" % args.case)
 
 
+def _close_status_markdown(payload):
+    identity = payload.get("identity") or {}
+    account_ref = identity.get("buyer_account_ref") or {}
+    period = identity.get("period_range") or {}
+    c01 = payload.get("c01_status") or {}
+    facts = payload.get("computed_facts") or {}
+    review = payload.get("review_flow") or {}
+    lines = [
+        "# 月结状态 · %s" % (payload.get("close_case_id") or "—"),
+        "",
+        "- 买方：%s" % (account_ref.get("buyer") or "—"),
+        "- 供应商：%s" % (identity.get("vendor_ref") or "—"),
+        "- 账户：%s" % (account_ref.get("account") or "—"),
+        "- 账期：%s → %s（%s）" % (
+            period.get("from") or "—", period.get("to") or "—",
+            period.get("timezone") or "—"),
+        "- 币种：%s" % (identity.get("currency") or "—"),
+        "",
+        "## 状态",
+        "",
+        "- 任务状态：%s｜next_actor：%s" % (
+            c01.get("task_state") or "—", c01.get("next_actor") or "—"),
+        "- 阻断码：%s" % (c01.get("blocked_reason_code") or "无"),
+        "- 完成轴：%s" % json.dumps(facts.get("completion_axes") or {},
+                                    ensure_ascii=False),
+        "- 复核：%s｜签核版本：%s" % (
+            review.get("assigned_reviewer") or "未指派",
+            review.get("signoff_revision") or "未签核"),
+        "- 未闭合项：%d" % len(review.get("review_queue") or []),
+        "",
+        "## 缺失输入",
+        "",
+    ]
+    missing = payload.get("missing_inputs") or []
+    if missing:
+        for item in missing:
+            lines.append("- %s：%s" % (item.get("item") or "—",
+                                        item.get("why") or ""))
+    else:
+        lines.append("- 无")
+    lines += ["", "## 边界", "", "- %s" % (payload.get("boundary") or "—"), ""]
+    return "\n".join(lines)
+
+
 def cmd_close_status(args):
     from . import close_revision
     recovery = close_revision.ensure_recovered(args.case)
     target = close_revision.resolve_case_dir(args.case, args.revision)
     payload = close_mod.build_case(target)
     payload["recovery"] = recovery
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    fmt = getattr(args, "format", "auto")
+    if fmt == "auto":
+        fmt = "md" if sys.stdout.isatty() else "json"
+    if fmt == "md":
+        print(_close_status_markdown(payload))
+    else:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def cmd_close_recover(args):
@@ -799,6 +849,8 @@ def build_parser():
         sp = close_sub.add_parser(name, help=help_text)
         sp.add_argument("case")
         sp.add_argument("--revision", default="", help="指定 revision；默认最新")
+        sp.add_argument("--format", choices=("auto", "json", "md"), default="auto",
+                        help="输出格式；auto=终端用 md、管道用 json（默认 auto）")
         sp.set_defaults(func=cmd_close_status)
 
     sp = close_sub.add_parser("calculate", help="对 canonical bundle 运行既有重算链（V-03）")

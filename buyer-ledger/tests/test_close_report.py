@@ -160,6 +160,15 @@ class IndependentAxesTests(CloseReportTestBase):
                          Decimal(report["amounts"]["open_difference"]))
         self.assertIn("not a payment authorization", report["disclaimer"])
 
+    def test_markdown_verdict_labels_are_bilingual(self):
+        report = self.report(
+            sources=[_source("bills", "bill-export.csv")],
+            bills=self.full_bills())
+        text = close_report._report_markdown(report)
+        self.assertIn("Rule Repriced（规则重算）", text)
+        self.assertIn("Buyer Verified（买方独立核验）", text)
+        self.assertIn("finance_status（财务）", text)
+
     def test_v17_buyer_usage_matches_rule_but_vendor_bill_differs(self):
         report = self.report(
             sources=[_source("bills", "bill-export.csv"),
