@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.14.1 - 2026-11-18
+
+Review follow-ups from the 2026-11-17 audit: the duplicated root test loaders
+collapse into `tests/_root_support.py` (the V-4 dead-code claim for
+`lab/stats.py`/`lab/prereg.py` turned out wrong — `lab/analysis.py` imports
+them, so both files stay); the buyer-review example page gains outbound
+navigation. No behaviour change.
+
+
 ## v0.14.0 - 2026-11-18
 
 This release opens the review-mandated intake channel for bills (V-08 OCR
