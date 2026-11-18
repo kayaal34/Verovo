@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.14.2 - 2026-11-18
+
+Earlier review follow-ups rebased onto v0.14.1:
+
+- **V-2 money contract v1**: one definition for cents-exact amounts
+  (`healthcheck/verovo_healthcheck/money.py`) shared by every caller, so
+  rounding rules cannot drift between components.
+- **V-02 mapping disclosure**: close mapping previews name their open items
+  and the confirm output discloses accepted gaps.
+- **V-07 signoff timing**: the signoff race assertions follow the real
+  ordering, plus a deterministic lock-contention case.
+- **e2e quickstart trust**: the demo case passes the buyer-evidence gate it
+  documents; CLI hints align with real paths.
+
+240 buyer-ledger + 600 healthcheck tests, all vectors pass.
+
+
 ## v0.14.1 - 2026-11-18
 
 Review follow-ups from the 2026-11-17 audit: the duplicated root test loaders
@@ -106,6 +123,15 @@ signoff triple: one wins and the other gets an explicit `REVIEW_REQUIRED`
 concurrency conflict. The journal keeps solving single-process crash recovery;
 the lock solves "two writers at once". On platforms without `fcntl` the lock
 degrades to an explicit refusal rather than proceeding unlocked.
+
+### V-02 mapping review output: name the gaps before confirming
+
+`close mapping` now prints every open item (source / field / reason) instead of
+only a count, and the suggested confirm command carries the exact
+`--control-domain role=vendor|buyer` flags the confirm step needs, so the
+command printed by the tool runs as printed. A successful `--confirm` names the
+fields it accepted as gaps (`pending_fields_approved_as_gaps`) — a required
+field that stays unmapped can no longer be confirmed without being shown.
 
 ### Added
 

@@ -100,7 +100,36 @@ class ConcurrencyTests(unittest.TestCase):
         bad = [r for r in results if r[0] != 0]
         self.assertEqual(1, len(ok), results)
         self.assertEqual(1, len(bad), results)
-        self.assertIn("并发", bad[0][1] + "", "另一个进程必须得到明确的并发冲突")
+        # 输家有两种合法的显式失败：抢锁时对方还在写（并发冲突），或抢到锁时
+        # 对方已签核完（already signed）。两者都拒绝写入；只有静默成功或静默
+        # 覆盖才是缺陷。定时器决定落在哪一支，所以断言两种文案都接受，
+        # 抢锁分支的文案由下面 test_signoff_while_lock_held 确定性覆盖。
+        message = bad[0][1] + ""
+        self.assertTrue("并发" in message or "already signed" in message,
+                        "另一个进程必须得到显式的并发/已签核冲突，实际：%r"
+                        % message)
+
+    def test_signoff_while_lock_held_reports_concurrency(self):
+        """锁被占有时必须立刻报并发冲突，而不是排队、等待或静默重试。"""
+        try:
+            import fcntl
+        except ImportError:  # Windows 走 O_EXCL 兜底，这里不覆盖
+            self.skipTest("fcntl 不可用")
+        lock_path = self.case / ".close.lock"
+        with open(lock_path, "a+") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            try:
+                code = ("import sys; sys.path.insert(0, %r);"
+                        "from buyer_ledger import close_revision as r;"
+                        "r.signoff(%r, reviewer='roy')" % (str(BUYER), str(self.case)))
+                proc = subprocess.run([sys.executable, "-c", code], cwd=str(BUYER),
+                                      capture_output=True, text=True)
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        self.assertNotEqual(0, proc.returncode)
+        self.assertIn("并发", proc.stderr + proc.stdout)
+        self.assertFalse((self.case / ".close.journal").exists(),
+                         "被拒的签核不能留下 journal")
 
     def test_concurrent_revise_keeps_versions_consistent(self):
         code = ("import sys; sys.path.insert(0, %r);"
