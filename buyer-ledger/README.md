@@ -27,7 +27,7 @@
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 当前 193 项测试
+python3 -m unittest discover -s tests -t .     # 当前 240 项测试
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium

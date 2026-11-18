@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.14.2 - 2026-11-18
+
+Earlier review follow-ups rebased onto v0.14.1:
+
+- **V-2 money contract v1**: one definition for cents-exact amounts
+  (`healthcheck/verovo_healthcheck/money.py`) shared by every caller, so
+  rounding rules cannot drift between components.
+- **V-02 mapping disclosure**: close mapping previews name their open items
+  and the confirm output discloses accepted gaps.
+- **V-07 signoff timing**: the signoff race assertions follow the real
+  ordering, plus a deterministic lock-contention case.
+- **e2e quickstart trust**: the demo case passes the buyer-evidence gate it
+  documents; CLI hints align with real paths.
+
+240 buyer-ledger + 600 healthcheck tests, all vectors pass.
+
+
 ## v0.14.1 - 2026-11-18
 
 Review follow-ups from the 2026-11-17 audit: the duplicated root test loaders
