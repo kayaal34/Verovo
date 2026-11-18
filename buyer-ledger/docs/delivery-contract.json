@@ -1,0 +1,93 @@
+{
+  "schema": "verovo.delivery-contract/1",
+  "product": "verovo-buyer-ledger",
+  "updated_at": "2026-11-17",
+  "source": "后续优化评审-20261117 §4.3（Verovo 黄金链）+ §3.1（终态轴）+ §5（采购分支）",
+  "promise": "把用户可见的账单、合同和交付证据转成可复核的费用/交付结论；每个范围内条目都有 PASS/FAIL/UNPROVABLE 及处置，例外不会被藏在报告里。",
+  "business_goal": {
+    "product_goal": "站在买方一侧给出第二个可行动的数，并完成逐行费用/交付核验与月结处置",
+    "business_outcomes": ["difference_actioned", "difference_resolved", "close_completed_with_exceptions"],
+    "success_rule": "业务结果只来自独立的差异询问/修正/争议/保留处置或带例外的月结完成记录；报告、OCR页数、签核和UNPROVABLE都不是业务成功",
+    "outcome_status": "not_observed",
+    "note": "合成验收只证明OCR候选到close的产品链，不证明供应商认可、追回或客户业务目标已实现"
+  },
+  "supported_intents": [
+    {
+      "id": "bill_intake_candidate",
+      "entry": "bill-candidate add",
+      "description": "账单截图（本地 macOS Vision OCR）或粘贴文本 → 带字段级证据（截图区域/文本 span + 置信度）的 unreviewed 候选草稿",
+      "inputs": ["账单截图 png/jpg（真实 Vision 仅 macOS）", "粘贴文本", "或预计算的 OCR 结果 JSON"],
+      "requires": ["本地文件；无网络、无浏览器依赖", "非 darwin 改用文本或离线 OCR JSON；真实 Vision 明确 UNSUPPORTED_SCOPE"],
+      "terminal_states": ["BLOCKED_USER_INPUT", "DELIVERED"],
+      "never": ["自动入账", "调用付费 API"]
+    },
+    {
+      "id": "bill_field_review",
+      "entry": "bill-candidate review",
+      "description": "关键字段（vendor/invoice_no/period/currency/amount）与低置信/缺证据字段逐一人工复核；可纠正 OCR 值，原值保留",
+      "inputs": ["字段名", "确认值", "复核人姓名（attested_by_declaration）"],
+      "requires": ["人；未复核字段不入 canonical"],
+      "terminal_states": ["BLOCKED_USER_INPUT"],
+      "never": ["用猜测补值"]
+    },
+    {
+      "id": "bill_booking",
+      "entry": "bill-candidate book",
+      "description": "复核清零后的人工入账：导出 bills 源 CSV（行级证据列指回候选）+ 原始截图/文本副本 + verovo.period-job/1",
+      "inputs": ["入账人", "目标账期包目录", "account（必填）", "可选 usage/rule-map"],
+      "requires": ["复核队列清零", "无重复 invoice_no 已入账"],
+      "terminal_states": ["DELIVERED", "BLOCKED_USER_INPUT"],
+      "never": ["覆盖已有 period-job", "授权付款"]
+    },
+    {
+      "id": "period_close",
+      "entry": "close init/ingest/mapping/calculate/report/review/revise/signoff",
+      "description": "既有月结链：人工确认映射 → canonical → 独立复算 → 六份可复核报告对象 → 署名复核/签核（V-02/V-03/V-04/V-06/V-07）",
+      "inputs": ["账期包（bills/usage/rule-map）", "人工映射确认", "署名复核人"],
+      "requires": ["人工映射确认先于 canonical", "修订走 revision 不覆盖"],
+      "terminal_states": ["DELIVERED", "DELIVERED_WITH_GAP", "BLOCKED_USER_INPUT"],
+      "never": ["把 UNPROVABLE 当完成", "把签核当付款"]
+    }
+  ],
+  "delivery_terminal_states": [
+    {"state": "DELIVERED", "meaning": "约定范围内的动作完成，证据已核验"},
+    {"state": "DELIVERED_WITH_GAP", "meaning": "动作完成但目标读数未达成/不可见；真实差距与下一步明确"},
+    {"state": "BLOCKED_USER_INPUT", "meaning": "需要用户补证据/复核/确认/采购；给出唯一明确行动"},
+    {"state": "UNSUPPORTED", "meaning": "超出产品定义，开始前说明并路由"},
+    {"state": "FAILED_UNRESOLVED", "meaning": "已尝试但未确认结果；保留现场，禁止盲目重试"}
+  ],
+  "verification_conclusions": {
+    "values": ["PASS", "FAIL", "UNPROVABLE"],
+    "note": "核验结论属于月结报告的 verdicts，不是交付终态；UNPROVABLE 不得静默计为完成"
+  },
+  "exclusions": [
+    "不执行付款、退款或任何资金动作；签核与入账都不是付款授权",
+    "不裁决供应商争议；差异与争议材料交由买方处置",
+    "不执行采购：付费 OCR/数据源只输出 requires_procurement 分支",
+    "不做未经人工确认的自动入账；OCR 候选永不自行进 canonical",
+    "不做多币种合并、汇率换算、税/credit/退款推断、通用格式 PDF/XLSX 解析"
+  ],
+  "requires_procurement": {
+    "template": {
+      "terminal_state": "BLOCKED_USER_INPUT",
+      "reason": "requires_procurement",
+      "item": "需要用户开通/采购的服务",
+      "why": "为什么免费或当前可见路径不能完成",
+      "user_action": "用户需要完成的具体动作",
+      "alternatives": ["CDP 可见页", "复制粘贴", "截图 OCR", "缩小范围"],
+      "transaction_executed": false
+    },
+    "trigger": "--engine paid-cloud-ocr：付费云 OCR 未采购时，输出该 JSON 并退出 2，不发起任何网络调用或购买"
+  },
+  "evidence_requirements": [
+    "关键字段必须能回到截图区域（bbox）或文本 span（行号+字符区间+摘录）；缺证据区域即进复核队列，不猜测",
+    "原始截图/文本逐字节保留（sha256 记录），图片另存实际提取所用 ocr.txt 及 hash；入账导出行携带 source_path/evidence_ref 指回候选",
+    "未提取的关键字段保持 null；OCR 置信度低于 0.90 或关键字段缺证据 → 人工复核；高置信也只进 draft，入账必须人工 book",
+    "行项目加总与确认总额不一致时拒绝 book；混合币种由 close import 拒绝，不换算、不合并",
+    "验收字段：user_intent / expected_terminal_state / real_side_effect / receipt / observed_outcome / evidence_paths"
+  ],
+  "first_interaction": {
+    "help_mentions": ["bill-candidate", "contract", "close"],
+    "contract_command": "python3 -m buyer_ledger contract show"
+  }
+}

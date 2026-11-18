@@ -1,6 +1,39 @@
 # Changelog
 
-## Unreleased
+## v0.14.0 - 2026-11-18
+
+This release opens the review-mandated intake channel for bills (V-08 OCR
+golden chain: candidate → field review → booked export into close) and makes
+the delivery surface machine-checkable (P0.1 contract, bilingual close
+reports, C-01-Lite delegation). buyer-ledger: 237 tests, healthcheck: 594
+tests, all vectors pass.
+
+
+V-08 (OCR bill golden chain): `bill-candidate add/review/book` opens the
+review-mandated intake channel — a bill screenshot (local Vision OCR),
+pasted text, or injected OCR lines becomes an unreviewed candidate draft with
+field-level evidence (bbox region or text span + confidence per
+vendor/invoice_no/period/currency/amount/line item). Key fields and
+low-confidence/missing-evidence fields queue for named human review; the
+draft never books itself, and booking is an explicit `--by` act exporting a
+bills source (row-level provenance back to the candidate), the verbatim
+document, and a `verovo.period-job/1` for the existing close chain. Bad OCR
+ends BLOCKED_USER_INPUT with one user action and zero invented values; a
+duplicate invoice_no refuses to double-book; `--engine paid-cloud-ocr`
+returns the §5 `requires_procurement` JSON without any transaction. UNPROVABLE
+stays a verification conclusion in the close report, never a delivery terminal
+state. Follow-up hardening keeps every unextracted key field null, preserves the
+image path's exact OCR text and hash, explicitly refuses real Vision OCR on
+non-darwin, and blocks line-total mismatches and mixed-currency close imports.
+Acceptance: 30 targeted candidate/close tests plus the replayable log
+`buyer-ledger/docs/ocr-golden-chain-acceptance-20261117.json` (the log itself is
+from the earlier 26-test synthetic replay, not a live Vision quality claim).
+
+P0.1 (delivery contract): `python3 -m buyer_ledger contract show` prints
+`buyer-ledger/docs/delivery-contract.json` — supported intents, §3.1 delivery
+terminal states vs verification conclusions, exclusions, the §5 procurement
+template and evidence requirements; consistency tests keep the file, the CLI
+first interaction and the implementation aligned.
 
 V-01 (differential cause qualification): an amount difference and its cause
 are now separate claims in the ai-invoice-reconciliation example; no cause is

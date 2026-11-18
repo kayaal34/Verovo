@@ -6,9 +6,10 @@ import json
 import unittest
 from pathlib import Path
 
+from buyer_ledger import cli
 from buyer_ledger import close as close_mod
 
-from .test_close_period_import import BILLS_CSV, RULE_MAP, USAGE_JSONL, _job
+from tests.test_close_period_import import BILLS_CSV, RULE_MAP, USAGE_JSONL, _job
 import tempfile
 
 STATES = {"NEEDS_INPUT", "READY", "NEEDS_REVIEW", "BLOCKED", "PARTIAL", "DELIVERED"}
@@ -58,6 +59,13 @@ class DelegationContractTests(unittest.TestCase):
         self.assertEqual("USD", block["authorization_scope"]["currency"])
         self.assertEqual("2026-10-01", block["authorization_scope"]["period"]["from"])
         self.assertEqual("acct-1", block["authorization_scope"]["account"]["account"])
+
+    def test_status_markdown_is_human_readable_and_keeps_boundary(self):
+        text = cli._close_status_markdown(self._status())
+        self.assertIn("# 月结状态", text)
+        self.assertIn("完成轴", text)
+        self.assertIn("缺失输入", text)
+        self.assertIn("边界", text)
 
 
 if __name__ == "__main__":

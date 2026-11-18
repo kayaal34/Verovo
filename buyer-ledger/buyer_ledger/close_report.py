@@ -47,6 +47,19 @@ AXES = ("finance_status", "verification_status", "delivery_status",
         "economics_status")
 VERDICT_NAMES = ("Rule Repriced", "Invoice Reconciled", "Vendor Reconciled",
                  "Buyer Verified", "Delivery Accepted")
+AXIS_LABELS_ZH = {
+    "finance_status": "财务",
+    "verification_status": "验证",
+    "delivery_status": "交付",
+    "economics_status": "经济",
+}
+VERDICT_LABELS_ZH = {
+    "Rule Repriced": "规则重算",
+    "Invoice Reconciled": "发票对账",
+    "Vendor Reconciled": "供应商对账",
+    "Buyer Verified": "买方独立核验",
+    "Delivery Accepted": "交付验收",
+}
 ADJUSTMENT_TYPES = ("tax", "credit", "refund", "discount")
 APPLIED_STATES = {"applied", "posted", "realized"}
 PENDING_STATES = {"issued", "pending", "unapplied", "void", "unknown", ""}
@@ -1376,12 +1389,15 @@ def _report_markdown(report: Dict[str, Any]) -> str:
         "|---|---|",
     ]
     for axis in AXES:
-        lines.append("| %s | %s |" % (axis, report[axis]))
+        lines.append("| %s（%s） | %s |" % (
+            axis, AXIS_LABELS_ZH.get(axis, ""), report[axis]))
     lines.extend(["", "| 裁决 | 状态 | 行数 | 限制 |", "|---|---|---:|---|"])
     for name in VERDICT_NAMES:
         verdict = report["verdicts"][name]
+        label = VERDICT_LABELS_ZH.get(name)
+        display = "%s（%s）" % (name, label) if label else name
         lines.append("| %s | %s | %d | %s |" % (
-            name, verdict["status"], len(verdict["rows"]),
+            display, verdict["status"], len(verdict["rows"]),
             "；".join(verdict["limitations"])))
     lines.extend([
         "",
