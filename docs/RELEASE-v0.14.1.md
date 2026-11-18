@@ -6,9 +6,10 @@ vectors pass.
 
 ## What is in it
 
-- **V-4 dead-code removal**: the vendored `healthcheck/verovo_healthcheck/lab/`
-  modules that nothing imported are deleted, and the duplicated root test
-  loaders collapse into one `tests/_root_support.py`.
+- **Root test-loader dedup (V-4, scoped)**: the duplicated root test loaders
+  collapse into one `tests/_root_support.py`. The proposed deletion of
+  `lab/stats.py`/`lab/prereg.py` was reverted on review: `lab/analysis.py`
+  imports both, so they are live code, not dead code.
 - **Buyer-review example navigation**: the published
   `examples/buyer-review.html` gains outbound navigation so readers can move
   on from the demo to the next step.
