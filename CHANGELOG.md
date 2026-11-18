@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.14.1 - 2026-11-18
+
+Review follow-ups from the 2026-11-17 audit: V-4 removes the dead vendored
+`lab/` modules and dedupes the root test loaders into `tests/_root_support.py`;
+the buyer-review example page gains outbound navigation. No behaviour change.
+
+
 ## v0.14.0 - 2026-11-18
 
 This release opens the review-mandated intake channel for bills (V-08 OCR
