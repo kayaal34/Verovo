@@ -1704,6 +1704,14 @@ def _verify_signoff_freshness(case_dir: Path, target: Path,
                 stale("the signed %s no longer matches the %s on disk; a later "
                       "source must create a new revision — run close revise"
                       % (label, label))
+        stored_attestation = existing.get("record_fingerprint")
+        if stored_attestation:
+            body = {key: value for key, value in existing.items()
+                    if key != "record_fingerprint"}
+            if stored_attestation != _fingerprint(body):
+                stale("signoff.json no longer matches its own record "
+                      "fingerprint; reviewer, scope or timing declarations were "
+                      "edited after signing — do not overwrite it")
         _verify_signed_triple(case_dir, revision, existing)
     return {
         "report": report,
@@ -1812,6 +1820,7 @@ def _signoff_locked(case_dir: Path, *, reviewer: str, approved_scope: str = "",
                      "authorization, does not close unresolved items, and does not "
                      "transfer to a later revision."),
     }
+    record["record_fingerprint"] = _fingerprint(record)
     writes = [_write_descriptor(case_dir, "signoff", target / "signoff.json",
                                 record)]
     if revision is not None:

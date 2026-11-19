@@ -32,10 +32,12 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import platform
 import re
 import shutil
 import subprocess
+import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -393,6 +395,52 @@ def _candidate_dir(store: Path, candidate_id: str) -> Path:
     return Path(store) / candidate_id
 
 
+STORE_LOCK_NAME = ".bill-candidates.lock"
+BOOKING_SCHEMA = "verovo.bill-booking/1"
+STAGING_PREFIX = ".staging-cand-"
+
+
+def _store_lock(store: Path):
+    """Serialize candidate-id allocation and booking across processes.
+
+    Two imports used to scan the same highest id and both create ``cand-NNNN``
+    with ``exist_ok=True``; two bookings could interleave the same bundle.
+    A non-blocking flock fails closed instead of queueing behind a stuck peer.
+    """
+    import contextlib
+
+    @contextlib.contextmanager
+    def locked():
+        root = Path(store)
+        root.mkdir(parents=True, exist_ok=True)
+        fcntl = None
+        try:
+            import fcntl as _fcntl
+            fcntl = _fcntl
+        except ImportError:  # Windows: no flock, single-process discipline remains
+            fcntl = None
+        handle = open(root / STORE_LOCK_NAME, "a+")
+        try:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    raise CloseError(
+                        "REVIEW_REQUIRED",
+                        "并发冲突：另一个进程正在导入或入账候选账单（%s）。"
+                        "等它结束后重跑；不要并行 book 同一批候选。"
+                        % (root / STORE_LOCK_NAME).name) from None
+            yield
+        finally:
+            try:
+                if fcntl is not None:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
+
+    return locked()
+
+
 def _next_id(store: Path) -> str:
     store = Path(store)
     highest = 0
@@ -404,11 +452,159 @@ def _next_id(store: Path) -> str:
     return "cand-%04d" % (highest + 1)
 
 
-def _write_candidate(store: Path, candidate: Dict[str, Any]) -> None:
-    path = _candidate_dir(store, candidate["candidate_id"])
+def _write_candidate(store: Path, candidate: Dict[str, Any],
+                     directory: Path = None) -> None:
+    """Atomic candidate write: a crash never leaves a truncated candidate.json."""
+    path = Path(directory) if directory is not None \
+        else _candidate_dir(store, candidate["candidate_id"])
     path.mkdir(parents=True, exist_ok=True)
-    (path / "candidate.json").write_text(
+    target = path / "candidate.json"
+    temp = path / (".candidate.json.tmp-%s" % uuid.uuid4().hex[:8])
+    temp.write_text(
         json.dumps(candidate, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    os.replace(temp, target)
+
+
+def _clear_orphan_staging(store: Path) -> None:
+    """A previous crash may leave a staging dir; it was never a candidate."""
+    root = Path(store)
+    if not root.is_dir():
+        return
+    for child in root.glob(STAGING_PREFIX + "*"):
+        if child.is_dir():
+            shutil.rmtree(child, ignore_errors=True)
+
+
+PENDING_NAME = ".booking-pending.json"
+BOOKINGS_NAME = "bookings.jsonl"
+
+
+def _booked_index(store: Path) -> List[Dict[str, Any]]:
+    """Store-level record of committed invoices, independent of candidate status.
+
+    A crash between the bundle commit and the candidate status write would
+    otherwise hide that invoice from the duplicate check. A malformed line
+    fails closed: silently skipping it could allow a second booking.
+    """
+    path = Path(store) / BOOKINGS_NAME
+    if not path.is_file():
+        return []
+    rows: List[Dict[str, Any]] = []
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise CloseError(
+                "ARTIFACT_PARTIAL",
+                "%s 第 %d 行无法解析（%s）；先修复入账索引再 book。"
+                % (path, lineno, exc)) from exc
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _record_booking(store: Path, candidate_id: str, vendor: str,
+                    invoice_no: str, bundle: Path,
+                    booking: Dict[str, Any]) -> None:
+    """Append once per candidate; repeated recovery must not duplicate the row."""
+    rows = _booked_index(store)
+    if any(str(row.get("candidate_id") or "") == str(candidate_id) for row in rows):
+        return
+    entry = {
+        "schema": "verovo.booked-invoice/1",
+        "candidate_id": candidate_id,
+        "vendor": vendor,
+        "invoice_no": invoice_no,
+        "bundle": str(bundle),
+        "booked_by": booking.get("booked_by"),
+        "booked_at": booking.get("booked_at"),
+        "export_sha256": booking.get("export_sha256"),
+    }
+    path = Path(store) / BOOKINGS_NAME
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _finalize_directory(staging: Path, target: Path, *, what: str) -> None:
+    """Commit a fully written staging dir; never overwrite an existing artifact.
+
+    Empty target: one atomic rename. Non-empty target (the operator may have
+    dropped usage/rule-map inputs there): move a pending marker first, then the
+    generated files, then booking.json as the commit record. A crash leaves the
+    marker behind, so the next run can roll back exactly what this run added.
+    """
+    target = Path(target)
+    if not target.exists():
+        try:
+            os.rename(staging, target)
+        except OSError as exc:
+            raise CloseError(
+                "ARTIFACT_PARTIAL",
+                "%s 落盘失败（%s）：%s。暂存目录保留在 %s，可人工检查后重放。"
+                % (what, target, exc, staging)) from exc
+        return
+    if not target.is_dir():
+        raise CloseError("REVIEW_REQUIRED",
+                         "%s 目标 %s 已存在且不是目录；不覆盖。" % (what, target))
+    if not any(target.iterdir()):
+        target.rmdir()
+        os.rename(staging, target)
+        return
+    if not (staging / PENDING_NAME).is_file():
+        raise CloseError("ARTIFACT_PARTIAL",
+                         "%s 缺少 %s，无法安全合并到已有目录 %s"
+                         % (what, PENDING_NAME, target))
+    os.replace(staging / PENDING_NAME, target / PENDING_NAME)
+    for name in sorted(item.name for item in staging.iterdir()):
+        if name == "booking.json":
+            continue
+        destination = target / name
+        if destination.exists():
+            raise CloseError(
+                "REVIEW_REQUIRED",
+                "%s 里已有同名文件 %s；不覆盖——换一个目录或走修订。"
+                % (what, destination))
+        os.replace(staging / name, destination)
+    booking_source = staging / "booking.json"
+    if booking_source.is_file():
+        os.replace(booking_source, target / "booking.json")
+    (target / PENDING_NAME).unlink(missing_ok=True)
+    staging.rmdir()
+
+
+def _roll_back_partial_bundle(bundle: Path, *, candidate_id: str) -> bool:
+    """Remove files an interrupted finalize added; verify hashes before deleting."""
+    bundle = Path(bundle)
+    pending = bundle / PENDING_NAME
+    if not pending.is_file():
+        return False
+    try:
+        payload = json.loads(pending.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CloseError("ARTIFACT_PARTIAL",
+                         "%s 不可读：%s" % (pending, exc)) from exc
+    if str(payload.get("candidate_id") or "") != str(candidate_id):
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "%s 有一次未完成的入账（候选 %s）；不能由候选 %s 覆盖"
+            % (bundle, payload.get("candidate_id"), candidate_id))
+    for entry in payload.get("files") or []:
+        name = str((entry or {}).get("name") or "")
+        if not name or name == PENDING_NAME or "/" in name or "\\" in name:
+            continue
+        path = bundle / name
+        if not path.is_file():
+            continue
+        if _sha256_file(path) != str(entry.get("sha256") or ""):
+            raise CloseError(
+                "ARTIFACT_PARTIAL",
+                "%s 与中断记录不符（可能已被人工修改）；不自动删除，请人工核对后重放。"
+                % path)
+        path.unlink()
+    pending.unlink(missing_ok=True)
+    return True
 
 
 def load_candidate(store: Path, candidate_id: str) -> Dict[str, Any]:
@@ -607,78 +803,90 @@ def add_candidate(store: Path, *, engine: str = "text", pasted_text: str = None,
         lines_payload = [{"text": line, "confidence": 1.0, "bbox": None}
                          for line in text.splitlines() if line.strip()]
 
-    candidate_id = _next_id(store)
-    directory = _candidate_dir(store, candidate_id)
+    with _store_lock(store):
+        # Under the lock a staging dir can only be an orphan from a crash.
+        _clear_orphan_staging(store)
+        candidate_id = _next_id(store)
+        final_dir = _candidate_dir(store, candidate_id)
 
-    garbled_reason = _looks_garbled(lines_payload)
-    if garbled_reason:
-        # nothing is extracted from an unusable OCR pass; the key fields stay
-        # present-but-empty placeholders so the draft shows exactly what is
-        # missing without inventing a single value.
-        fields = [{
-            "name": name, "value": None, "confidence": 0.0, "key": True,
-            "flags": ["not_extracted"], "evidence": None, "review": None,
-            "status": "pending_review",
-        } for name in KEY_FIELDS]
-        status = "blocked_user_input"
-        blocked = {"reason": "bad_ocr", "detail": garbled_reason}
-    else:
-        fields = _extract_fields(lines_payload, from_image)
-        _apply_line_sum_flag(fields)
-        status = "unreviewed"
-        blocked = None
+        garbled_reason = _looks_garbled(lines_payload)
+        if garbled_reason:
+            # nothing is extracted from an unusable OCR pass; the key fields stay
+            # present-but-empty placeholders so the draft shows exactly what is
+            # missing without inventing a single value.
+            fields = [{
+                "name": name, "value": None, "confidence": 0.0, "key": True,
+                "flags": ["not_extracted"], "evidence": None, "review": None,
+                "status": "pending_review",
+            } for name in KEY_FIELDS]
+            status = "blocked_user_input"
+            blocked = {"reason": "bad_ocr", "detail": garbled_reason}
+        else:
+            fields = _extract_fields(lines_payload, from_image)
+            _apply_line_sum_flag(fields)
+            status = "unreviewed"
+            blocked = None
 
-    suffix = Path(image_name).suffix.lower() if from_image else ".txt"
-    source_name = "source" + (suffix or ".bin")
+        suffix = Path(image_name).suffix.lower() if from_image else ".txt"
+        source_name = "source" + (suffix or ".bin")
 
-    candidate = {
-        "schema": CANDIDATE_SCHEMA,
-        "candidate_id": candidate_id,
-        "status": status,
-        "engine": engine,
-        "created_at": _now_iso(),
-        "source": {
-            "kind": "image" if from_image else "text",
-            "file": source_name,
-            "sha256": None,  # filled after write
-            "raw_text": "ocr.txt" if from_image else source_name,
-            "raw_text_sha256": None,  # filled after write
-            "ocr_payload": "ocr.json" if from_image else None,
-        },
-        "fields": fields,
-        "blocked": blocked,
-        "duplicate_of": [],
-        "booking": None,
-        "boundary": ("candidates are drafts with field-level evidence; nothing "
-                     "is booked and no verdict here authorizes payment"),
-    }
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / source_name).write_bytes(source_bytes)
-    if from_image:
-        (directory / "ocr.json").write_text(
-            json.dumps({"schema": OCR_LINES_SCHEMA, "lines": lines_payload},
-                       indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        # Preserve the exact normalized text used by field extraction as well
-        # as the source image and OCR coordinates/confidence payload.
-        (directory / "ocr.txt").write_text(
-            "".join(_text(line["text"]) + "\n" for line in lines_payload),
-            encoding="utf-8")
-    candidate["source"]["sha256"] = _sha256_file(directory / source_name)
-    candidate["source"]["raw_text_sha256"] = _sha256_file(
-        directory / candidate["source"]["raw_text"])
+        candidate = {
+            "schema": CANDIDATE_SCHEMA,
+            "candidate_id": candidate_id,
+            "status": status,
+            "engine": engine,
+            "created_at": _now_iso(),
+            "source": {
+                "kind": "image" if from_image else "text",
+                "file": source_name,
+                "sha256": None,  # filled after write
+                "raw_text": "ocr.txt" if from_image else source_name,
+                "raw_text_sha256": None,  # filled after write
+                "ocr_payload": "ocr.json" if from_image else None,
+            },
+            "fields": fields,
+            "blocked": blocked,
+            "duplicate_of": [],
+            "booking": None,
+            "boundary": ("candidates are drafts with field-level evidence; nothing "
+                         "is booked and no verdict here authorizes payment"),
+        }
+        # Build the whole candidate in staging, then rename once: a crash leaves
+        # either nothing or a complete candidate, never a half-written draft.
+        staging = store / (STAGING_PREFIX + "%s-%s"
+                           % (candidate_id, uuid.uuid4().hex[:8]))
+        staging.mkdir(parents=True, exist_ok=False)
+        try:
+            (staging / source_name).write_bytes(source_bytes)
+            if from_image:
+                (staging / "ocr.json").write_text(
+                    json.dumps({"schema": OCR_LINES_SCHEMA, "lines": lines_payload},
+                               indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+                # Preserve the exact normalized text used by field extraction as
+                # well as the source image and OCR coordinates/confidence payload.
+                (staging / "ocr.txt").write_text(
+                    "".join(_text(line["text"]) + "\n" for line in lines_payload),
+                    encoding="utf-8")
+            candidate["source"]["sha256"] = _sha256_file(staging / source_name)
+            candidate["source"]["raw_text_sha256"] = _sha256_file(
+                staging / candidate["source"]["raw_text"])
 
-    if status != "blocked_user_input":
-        identity = _identity_of(candidate)
-        duplicates = []
-        for other in list_candidates(store):
-            if other["candidate_id"] == candidate_id:
-                continue
-            if _same_invoice(other, identity):
-                duplicates.append(other["candidate_id"])
-        candidate["duplicate_of"] = duplicates
+            if status != "blocked_user_input":
+                identity = _identity_of(candidate)
+                duplicates = []
+                for other in list_candidates(store):
+                    if other["candidate_id"] == candidate_id:
+                        continue
+                    if _same_invoice(other, identity):
+                        duplicates.append(other["candidate_id"])
+                candidate["duplicate_of"] = duplicates
 
-    _write_candidate(store, candidate)
-    return {"candidate": candidate, "procurement": None}
+            _write_candidate(store, candidate, directory=staging)
+            _finalize_directory(staging, final_dir, what="候选目录")
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        return {"candidate": candidate, "procurement": None}
 
 
 def _field_value(candidate: Dict[str, Any], name: str) -> Any:
@@ -811,12 +1019,29 @@ def book(store: Path, candidate_id: str, *, reviewer: str, into: Path,
     This is the only bridge from an OCR candidate into the ledger, it is a
     human act (``--by``), and it refuses to run while any field review is
     pending or the invoice_no is already booked.
+
+    Transaction boundary (V-09): every check runs before anything is created,
+    the whole bundle is written in a staging directory and renamed once, and
+    the candidate status is updated last. A crash therefore leaves either no
+    bundle or a complete one with its own ``booking.json``; rerunning the same
+    book repairs the status instead of exporting a second copy.
     """
     store = Path(store)
     if not _text(reviewer):
         raise CloseError("INPUT_REQUIRED",
                          "booking needs a named reviewer; an OCR draft never "
                          "books itself")
+    with _store_lock(store):
+        return _book_locked(
+            store, candidate_id, reviewer=reviewer, into=into, account=account,
+            job_id=job_id, buyer=buyer, timezone_=timezone_, usage=usage,
+            rule_map=rule_map)
+
+
+def _book_locked(store: Path, candidate_id: str, *, reviewer: str, into: Path,
+                 account: str, job_id: str, buyer: str, timezone_: str,
+                 usage: str, rule_map: str) -> Dict[str, Any]:
+    bundle = Path(into)
     candidate = load_candidate(store, candidate_id)
     if candidate["status"] == "booked":
         raise CloseError("REVIEW_REQUIRED",
@@ -849,6 +1074,17 @@ def book(store: Path, candidate_id: str, *, reviewer: str, into: Path,
                 "invoice %s of %s is already booked as %s; a duplicate invoice "
                 "never double-books — dispute it through the close report"
                 % (identity[1], identity[0], other["candidate_id"]))
+    # The bundle is the commit; the candidate status can lag after a crash.
+    for row in _booked_index(store):
+        if str(row.get("candidate_id") or "") == candidate_id:
+            continue
+        if (str(row.get("vendor") or "").casefold() == identity[0]
+                and str(row.get("invoice_no") or "").casefold() == identity[1]):
+            raise CloseError(
+                "REVIEW_REQUIRED",
+                "invoice %s of %s is already committed to %s; a duplicate invoice "
+                "never double-books — dispute it through the close report"
+                % (identity[1], identity[0], row.get("bundle")))
 
     vendor = _text(_field_value(candidate, "vendor"))
     invoice_no = _text(_field_value(candidate, "invoice_no"))
@@ -866,8 +1102,20 @@ def book(store: Path, candidate_id: str, *, reviewer: str, into: Path,
                          "field period must be reviewed to a half-open range before "
                          "booking")
 
-    bundle = Path(into)
-    bundle.mkdir(parents=True, exist_ok=True)
+    # Referenced inputs are checked before the bundle is created: a missing
+    # usage/rule-map file must not leave a CSV and document behind.
+    for flag, value in (("--usage", usage), ("--rule-map", rule_map)):
+        if value and not (bundle / value).is_file():
+            raise CloseError("INPUT_REQUIRED",
+                             "%s %s not found inside %s" % (flag, value, bundle))
+
+    # A complete previous attempt left booking.json as its commit marker. Repair
+    # the candidate instead of writing a second bundle or refusing forever.
+    manifest_path = bundle / "booking.json"
+    if manifest_path.is_file():
+        return _resume_booking(store, candidate, bundle, manifest_path)
+
+    _roll_back_partial_bundle(bundle, candidate_id=candidate_id)
     job_path = bundle / "period-job.json"
     if job_path.exists():
         raise CloseError("REVIEW_REQUIRED",
@@ -943,24 +1191,12 @@ def book(store: Path, candidate_id: str, *, reviewer: str, into: Path,
             "source_path": source_ref,
             "evidence_ref": evidence_ref("amount"),
         })
-    export_path = bundle / export_name
-    with export_path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-
-    source_file = _candidate_dir(store, candidate_id) / candidate["source"]["file"]
-    doc_path = bundle / doc_name
-    shutil.copyfile(source_file, doc_path)
 
     sources = [
         {"role": "bills", "path": export_name, "control_domain": "vendor"},
         {"role": "invoice", "path": doc_name, "control_domain": "vendor"},
     ]
     if usage:
-        if not (bundle / usage).is_file():
-            raise CloseError("INPUT_REQUIRED",
-                             "--usage %s not found inside %s" % (usage, bundle))
         sources.append({"role": "usage", "path": usage,
                         "control_domain": "vendor"})
     month = period["from"][:7]
@@ -978,30 +1214,113 @@ def book(store: Path, candidate_id: str, *, reviewer: str, into: Path,
         "task_economics_requested": False,
         "approved_by": None,
     }
-    if rule_map and not (bundle / rule_map).is_file():
-        raise CloseError("INPUT_REQUIRED",
-                         "--rule-map %s not found inside %s" % (rule_map, bundle))
     _validate_job(job)  # the export must pass close init's own contract
-    job_path.write_text(json.dumps(job, indent=2, ensure_ascii=False) + "\n",
-                        encoding="utf-8")
 
-    booking = {
-        "booked_by": _text(reviewer),
-        "booked_at": _now_iso(),
-        "attestation": "attested_by_declaration",
-        "bundle": str(bundle),
-        "export_path": str(export_path),
-        "export_sha256": _sha256_file(export_path),
-        "document_path": str(doc_path),
-        "document_sha256": _sha256_file(doc_path),
-        "job_path": str(job_path),
-        "invoice_total": amount,
-        "line_items_sum": (str(sum((Decimal(i["amount"]) for i in items),
-                                   Decimal("0"))) if items else None),
-        "payment_authorization": False,
-    }
+    source_file = _candidate_dir(store, candidate_id) / candidate["source"]["file"]
+    staging = bundle.parent / (".staging-book-%s-%s"
+                               % (candidate_id, uuid.uuid4().hex[:8]))
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    staging.mkdir()
+    try:
+        export_path = staging / export_name
+        with export_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames,
+                                    extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+
+        doc_path = staging / doc_name
+        shutil.copyfile(source_file, doc_path)
+
+        (staging / "period-job.json").write_text(
+            json.dumps(job, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        booking = {
+            "booked_by": _text(reviewer),
+            "booked_at": _now_iso(),
+            "attestation": "attested_by_declaration",
+            "bundle": str(bundle),
+            "export_path": str(bundle / export_name),
+            "export_sha256": _sha256_file(export_path),
+            "document_path": str(bundle / doc_name),
+            "document_sha256": _sha256_file(doc_path),
+            "job_path": str(job_path),
+            "invoice_total": amount,
+            "line_items_sum": (str(sum((Decimal(i["amount"]) for i in items),
+                                       Decimal("0"))) if items else None),
+            "payment_authorization": False,
+        }
+        (staging / "booking.json").write_text(
+            json.dumps({"schema": BOOKING_SCHEMA,
+                        "candidate_id": candidate_id,
+                        "vendor": vendor,
+                        "invoice_no": invoice_no,
+                        "booking": booking},
+                       indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        (staging / PENDING_NAME).write_text(
+            json.dumps({
+                "schema": "verovo.booking-pending/1",
+                "candidate_id": candidate_id,
+                "files": [{"name": item.name, "sha256": _sha256_file(item)}
+                          for item in staging.iterdir()],
+            }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        _finalize_directory(staging, bundle, what="账期包")
+    except CloseError:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise CloseError(
+            "ARTIFACT_PARTIAL",
+            "账期包写入失败：%s。没有对外留下半份产物；修复后重跑同一条 book。" % exc
+        ) from exc
+
     candidate["status"] = "booked"
     candidate["booking"] = booking
+    _record_booking(store, candidate_id, vendor, invoice_no, bundle, booking)
+    try:
+        _write_candidate(store, candidate)
+    except Exception as exc:  # bundle is complete; the candidate can be repaired
+        raise CloseError(
+            "ARTIFACT_PARTIAL",
+            "账期包已完整生成于 %s，但候选状态写入失败：%s。重跑同一条 book 会依据 "
+            "booking.json 修复状态，不会重复导出。" % (bundle, exc)) from exc
+    return booking
+
+
+def _resume_booking(store: Path, candidate: Dict[str, Any], bundle: Path,
+                    manifest_path: Path) -> Dict[str, Any]:
+    """Repair a booking whose bundle committed but whose status write did not."""
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CloseError("ARTIFACT_PARTIAL",
+                         "%s 不可读：%s" % (manifest_path, exc)) from exc
+    if manifest.get("schema") != BOOKING_SCHEMA:
+        raise CloseError("ARTIFACT_PARTIAL",
+                         "%s 不是 %s" % (manifest_path, BOOKING_SCHEMA))
+    if manifest.get("candidate_id") != candidate["candidate_id"]:
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "%s 已由候选 %s 入账；不能用候选 %s 覆盖"
+            % (bundle, manifest.get("candidate_id"), candidate["candidate_id"]))
+    vendor, invoice_no = _identity_of(candidate)
+    if (str(manifest.get("vendor") or "").casefold() != vendor
+            or str(manifest.get("invoice_no") or "").casefold() != invoice_no):
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "%s 的入账凭据与当前候选的发票身份不一致；不覆盖已有入账" % bundle)
+    booking = manifest.get("booking")
+    if not isinstance(booking, dict):
+        raise CloseError("ARTIFACT_PARTIAL",
+                         "%s 缺少 booking 对象" % manifest_path)
+    # The commit marker wins; a pending marker from the same crash is stale.
+    (bundle / PENDING_NAME).unlink(missing_ok=True)
+    candidate["status"] = "booked"
+    candidate["booking"] = booking
+    _record_booking(store, candidate["candidate_id"],
+                    str(manifest.get("vendor") or ""),
+                    str(manifest.get("invoice_no") or ""), bundle, booking)
     _write_candidate(store, candidate)
     return booking
 

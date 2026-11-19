@@ -27,7 +27,7 @@
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 当前 240 项测试
+python3 -m unittest discover -s tests -t .     # 当前 259 项测试（2026-11-18 最终回归计数）
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium
@@ -139,6 +139,39 @@ $B close review ./close-2026-10 --by finance-reviewer \
 - 负 credit、正 tax、未应用退款不报 realized savings；未应用项是 open
   exposure。缺少 invoice 行时金额是 `null`，不是 `0`。
 - 详细说明见 [docs/close-report.md](docs/close-report.md)。
+
+## 差异处置与跨产品证据交接（2026-11-18）
+
+月结报告中的差异不会因为 `review` 或 `signoff` 自动消失。责任人必须针对报告中的
+`D-N` open item 分别登记问询、更正、争议、预留或解决凭据；只有显式 `resolved`
+才把该项投影为已解决，后续 `dispute` 可以重新打开。处置记录追加保存，不改写金额；
+已签核版本必须新建 revision，不能原地补写。
+
+```bash
+$B close action ./close-2026-10 --open-item D-1 --type inquiry \
+  --owner finance --by reviewer --source-ref ticket:FIN-123 \
+  --occurred-at 2026-11-18T18:00:00+08:00
+$B close action ./close-2026-10 --open-item D-1 --type resolved \
+  --owner finance --by reviewer --source-ref credit-note:CN-123 \
+  --note "买方已收到并核对更正凭据" --occurred-at 2026-11-19T10:00:00+08:00
+$B close action ./close-2026-10 --list
+```
+
+`source_ref` 是登记人提供的本地声明，Verovo 不因此声称供应商已收到/接受，也不
+代发问询、提交争议、记账、退款或授权付款。报告、`review-queue.csv` 和 manifest
+会显示处置状态与日志哈希，原始计算金额保持不变。
+
+Growovo 的执行与产品事件可以先作为**未入账证据**导入：
+
+```bash
+# 在 Growovo 仓库：python3 mkt.py grow handoff-verovo RUN_ID --out handoff.json
+$B handoff import-growovo ./handoff.json --out ./growovo-evidence
+```
+
+导入校验 schema、run id、SHA-256 完整性、敏感字段与非空证据，并拒绝覆盖已有目录。
+`source_integrity_verified=true` 只表示 JSON 主体未被篡改；
+`receipt_verified_by_verovo=false`、`business_outcome_observed_by_verovo=false`。
+它不会自动进入 canonical 账本、验收交付、确认收入或授权付款。
 
 ## 版本化月结与后续调整（V-04）
 
