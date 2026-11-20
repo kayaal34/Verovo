@@ -23,6 +23,7 @@ if str(HEALTHCHECK_ROOT) not in sys.path:
 
 from buyer_ledger import cli
 from buyer_ledger import close_report
+from buyer_ledger import close_revision
 from buyer_ledger.close import (
     CloseError,
     confirm_mapping,
@@ -571,6 +572,81 @@ class ReviewGateTests(CloseReportTestBase):
         with self.assertRaises(CloseError) as ctx:
             close_report.build_report(self.case)
         self.assertEqual("INPUT_REQUIRED", ctx.exception.code)
+
+
+class ReviewSignoffSemanticsTests(CloseReportTestBase):
+    def test_review_and_signoff_labels_differ_with_relation_note(self):
+        report = self.report(
+            sources=[_source("bills", "bill-export.csv"),
+                     _source("usage", "usage-export.jsonl")],
+            bills=self.full_bills(amount="25.00"), usage=USAGE)
+        text = close_report._report_markdown(report)
+        self.assertIn("- 审阅状态：", text)
+        self.assertIn("审阅状态只表示复核进度，不等于签核；"
+                      "已签核也不等于所有差异已解决。", text)
+        self.assertNotIn("- 签核状态：", text)
+
+        signoff = close_revision.signoff(self.case, reviewer="controller",
+                                         approved_scope="read report")
+        self.assertEqual("signed_with_open_items", signoff["state"])
+        delivered = (self.case / "report" / "report-delivered.md").read_text(
+            encoding="utf-8")
+        self.assertIn("- 审阅状态：", delivered)
+        self.assertIn("- 签核状态：signed_with_open_items", delivered)
+        self.assertIn("已签核不等于所有差异已解决（未闭合项 %d 条）"
+                      % len(signoff["unresolved_items"]), delivered)
+
+
+class MoneyLayersTests(CloseReportTestBase):
+    def test_missing_economics_renders_five_layers_without_bare_dashes(self):
+        report = self.report(
+            sources=[_source("bills", "bill-export.csv")],
+            bills=self.full_bills())
+        self.assertEqual("not_applicable", report["task_economics"]["status"])
+        text = close_report._report_markdown(report)
+        for label in ("- 状态：", "- 已确认金额：", "- 未归属金额：",
+                      "- 缺失记录：", "- 无法计算：", "- 需要补充："):
+            self.assertIn(label, text)
+        self.assertNotIn("- fully loaded cost：", text)
+        self.assertNotIn("—\n—", text)
+        self.assertIn("不是 0", text)
+        self.assertIn("运营提供 outcomes 导出", text)
+
+
+class OpenItemGroupingTests(CloseReportTestBase):
+    def test_open_items_grouped_by_root_cause_keeping_details(self):
+        bills = (
+            BILLS_HEADER
+            + "ch-1,20.00,USD,1000,0.020,api-request,t1,2026-10-05,,\n"
+            + ",5.00,USD,250,0.020,api-request,t2,2026-10-06,,\n"
+        )
+        report = self.report(
+            sources=[_source("bills", "bill-export.csv")], bills=bills)
+        template = next(item for item in report["open_items"]
+                        if item["kind"] == "missing_charge_id")
+        items = []
+        for index in range(1, 21):
+            item = json.loads(json.dumps(template))
+            item["id"] = "D-%d" % index
+            item["line_ref"] = "bill-export.csv#row%d" % index
+            items.append(item)
+        groups = close_report._group_open_items(items)
+        self.assertEqual(1, len(groups))
+        group = groups[0]
+        self.assertEqual("missing_charge_id", group["kind"])
+        self.assertEqual(20, group["count"])
+        self.assertEqual(["D-1", "D-2"], group["samples"])
+        self.assertEqual("charge_id", group["missing_field"])
+
+        report["open_items"] = items
+        report["open_item_groups"] = groups
+        text = close_report._report_markdown(report)
+        self.assertIn("**根因分组（同一原因只处理一次）**", text)
+        self.assertIn("**逐条明细**", text)
+        self.assertIn("| %s | 20 |" % group["root_cause"], text)
+        detail_ids = [line.split("|")[1].strip()
+                      for line in text.splitlines() if line.startswith("| D-")]
+        self.assertEqual(["D-%d" % n for n in range(1, 21)], detail_ids)
 
 
 if __name__ == "__main__":

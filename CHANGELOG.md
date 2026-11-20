@@ -1,3 +1,76 @@
+## v0.15.3 - 2026-11-20
+
+Handoff premises, the shared error families, and a readable report surface.
+No change to booking amounts or verification verdicts.
+
+### Added
+
+- **the Growovo handoff now carries premises, and Verovo keeps them verbatim**:
+  a `grow handoff-verovo` package may include a `premises` block (source
+  objects and versions, scope, does-not-cover, assumptions, limits, manual
+  review state, evidence refs). `handoff import-growovo` validates that it is
+  an object, stores it as `source_premises` in the evidence record, sets
+  `premises_do_not_upgrade_grade: true`, and adds a fourth open item asking
+  the buyer to re-check the premises against buyer-controlled sources. A
+  handoff without premises still imports (the value is `null`). Premises are
+  inside the handoff integrity fingerprint, so tampering with them refuses the
+  import as a whole. `buyer-ledger/tests/test_growovo_handoff.py` covers
+  preservation, the no-upgrade rule, old packages and a non-object refusal.
+- **`buyer_ledger/error_semantics.py` maps the frozen C-01 codes to the seven
+  shared families** (NEEDS_USER_INPUT, UNSUPPORTED_CAPABILITY, INVALID_INPUT,
+  PERMISSION_DENIED, SAFETY_BLOCKED, STALE_OR_CONFLICT, CONTRACT_ERROR), with
+  `describe()` returning what is missing, the impact and the legal next
+  action. The module refuses to import if `close.py` gains or loses a code
+  without a family. It is read-only: `close.py` codes, verdicts and booking
+  statuses are untouched.
+  `buyer-ledger/tests/test_error_semantics.py` freezes the coverage and the
+  spot-checked families.
+- **bill drafts check line arithmetic against the printed amount**: a draft's
+  line items are re-computed at review time and at booking time. Quantity ×
+  unit price must match the printed line amount within
+  `max(one smallest printed unit, 1% of |line amount|)`; the old tolerance
+  (smallest unit × `max(1, |amount|)`) accepted any row in zero-decimal
+  currencies such as JPY and KRW. A line whose quantity, unit price or amount
+  is not a number cannot be booked even when it was "accepted with a note" —
+  `book` raises `REVIEW_REQUIRED` and names the row, so the reviewer corrects
+  the number instead of waiving it. A candidate that only carries a pasted
+  total keeps working. Period end dates written as an inclusive day are
+  converted to a half-open `[start, end)` interval, and the draft records
+  `period_end_converted_to_exclusive`, a `period_end_note`, and a ×0.9
+  confidence so the reviewer sees the conversion.
+  `buyer-ledger/tests/test_bill_candidate_line_trust.py` covers the currency
+  tolerance, unparseable rows, the note-accepted row, the clean path and the
+  inclusive-end conversion.
+
+### Changed
+
+- **the close report says what is unknown instead of printing dashes**: the
+  report body gains `amount_layers` (confirmed amounts, unattributed cost,
+  missing records, what cannot be computed and why, what input is needed) and
+  `open_item_groups` (one row per root cause with an affected count, two
+  sample item ids and one action). The Markdown keeps the per-item table and
+  adds the grouped table above it, so a 20-row gap is one request to the
+  supplier, not 20. The Task Economics section names the missing source and
+  the responsible input instead of leaving blank fields. Review and signoff
+  wording now distinguishes "reviewed", "signed" and "all differences
+  resolved"; a signed report states the unresolved count, and a missing
+  output snapshot reads "未生成" rather than an empty fingerprint. Verdicts,
+  amounts and booking behaviour are unchanged.
+
+### Tests
+
+- buyer-ledger: 384 tests OK (10 new in
+  `test_bill_candidate_line_trust.py`).
+- healthcheck: 609 tests OK; `verovo selftest` PASS; metric registry VALID
+  (18 metrics); conformance 22/22 metrics, 15/15 outcome, 23/23 delegation,
+  2/2 SSE vectors PASS; vocab 21 in sync.
+
+### Notes
+
+- `INVALID_INPUT` has no C-01 code: Verovo reports bad input as
+  `INPUT_REQUIRED`. The family exists in the shared vocabulary so the three
+  products speak the same words, not so Verovo must invent a code.
+
 ## v0.15.2 - 2026-11-20
 
 V-09b from the 2026-11-20 main review.

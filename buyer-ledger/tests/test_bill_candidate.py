@@ -612,5 +612,61 @@ class CliContractTests(BillCandidateTestBase):
         self.assertTrue((self.bundle / "period-job.json").is_file())
 
 
+class LineArithmeticTests(BillCandidateTestBase):
+    def test_line_arithmetic_pass_and_mismatch_flags_row_with_confidence_drop(self):
+        passed = self.add_pasted()
+        items = {f["name"]: f for f in passed["fields"]}["line_items"]
+        self.assertEqual([], items["line_issues"])
+        self.assertIn("校验通过", items["review_note"])
+        self.assertGreaterEqual(passed["confidence"], 0.5)
+
+        text = INVOICE_TEXT.replace("0.020   20.00", "0.020   21.00")
+        candidate = self.add_pasted(text)
+        fields = {f["name"]: f for f in candidate["fields"]}
+        items = fields["line_items"]
+        self.assertEqual(1, len(items["line_issues"]))
+        issue = items["line_issues"][0]
+        self.assertEqual("line_arithmetic_mismatch", issue["code"])
+        self.assertEqual({"quantity": "1000", "unit_price": "0.020",
+                          "amount": "21.00"}, issue["raw"])
+        self.assertEqual("20.00", issue["expected"])
+        self.assertIn("1000", issue["detail"])
+        self.assertIn("0.020", issue["detail"])
+        self.assertIn("21.00", issue["detail"])
+        self.assertTrue(items["value"][0]["needs_review"])
+        self.assertIn("line_arithmetic_mismatch", items["flags"])
+        self.assertLessEqual(items["confidence"], 0.5)
+        self.assertLessEqual(candidate["confidence"], 0.5)
+        self.assertIn("line_items",
+                      [i["field"] for i in bc.projection(candidate)["review_queue"]])
+        self.assertTrue(any("line_items" in note
+                            for note in candidate["review_notes"]))
+
+
+class PeriodSemanticsTests(BillCandidateTestBase):
+    def test_period_end_is_exclusive_with_explanation(self):
+        candidate = self.add_pasted()
+        period = {f["name"]: f for f in candidate["fields"]}["period"]
+        self.assertEqual({"from": "2026-10-01", "to": "2026-11-01",
+                          "to_exclusive": True}, period["value"])
+        self.assertTrue(period["period_end_exclusive"])
+        self.assertIn("不含当日处理", period["note"])
+        self.assertIn("2026-10-31", period["note"])
+        self.assertIn("[2026-10-01, 2026-11-01)", period["note"])
+        self.assertIn("period_end_converted_to_exclusive", period["flags"])
+        self.assertLess(period["confidence"], 1.0)
+        self.assertTrue(period["review_note"])
+        self.assertTrue(candidate["period_end_exclusive"])
+        self.assertEqual(period["note"], candidate["period_end_note"])
+
+        month = self.add_pasted(
+            "Billing Period: 2026-10\n"
+            "api requests (agent tier)   1000   0.020   20.00\n"
+            "TOTAL AMOUNT: 20.00 USD\n")
+        month_period = {f["name"]: f for f in month["fields"]}["period"]
+        self.assertEqual("2026-11-01", month_period["value"]["to"])
+        self.assertIn("2026-10-31", month_period["note"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -90,6 +90,55 @@ class HandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(growovo_handoff.HandoffError, "forbidden"):
             growovo_handoff.validate_handoff(credential)
 
+    def test_old_handoff_without_premises_still_imports(self):
+        # Backward compatibility: packages exported before premises existed.
+        result = growovo_handoff.import_handoff(self.source, self.root / "legacy")
+        self.assertFalse(result["source_premises_present"])
+        evidence = json.loads(Path(result["output"]).read_text(encoding="utf-8"))
+        self.assertIsNone(evidence["source_premises"])
+        self.assertTrue(evidence["premises_do_not_upgrade_grade"])
+
+    def test_premises_are_preserved_verbatim(self):
+        payload = fixture()
+        payload["premises"] = {
+            "schema": "growovo.handoff-premises/1",
+            "source_objects": {"run_id": "synthetic-run", "operations": 1},
+            "scope": {"covers": "action facts"},
+            "assumptions": ["events are source-declared"],
+            "limits": ["no revenue fact implied"],
+            "manual_status": {"state": "not_reviewed"},
+            "evidence_refs": [{"kind": "operation", "id": "op-1"}],
+            "boundary": "premises do not upgrade evidence grade",
+        }
+        payload["integrity_sha256"] = fingerprint(payload)
+        self.source.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        result = growovo_handoff.import_handoff(self.source, self.root / "premises")
+        self.assertTrue(result["source_premises_present"])
+        evidence = json.loads(Path(result["output"]).read_text(encoding="utf-8"))
+        self.assertEqual(payload["premises"], evidence["source_premises"])
+
+    def test_premises_never_change_booking_status(self):
+        payload = fixture()
+        payload["premises"] = {"scope": {"covers": "everything"},
+                               "manual_status": {"state": "approved"}}
+        payload["integrity_sha256"] = fingerprint(payload)
+        checked = growovo_handoff.validate_handoff(payload)
+        self.assertEqual({"scope": {"covers": "everything"},
+                          "manual_status": {"state": "approved"}},
+                         checked["premises"])
+        self.source.write_text(json.dumps(payload), encoding="utf-8")
+        result = growovo_handoff.import_handoff(self.source, self.root / "status")
+        evidence = json.loads(Path(result["output"]).read_text(encoding="utf-8"))
+        self.assertEqual("evidence_only_not_canonical", evidence["booking_status"])
+        self.assertFalse(evidence["receipt_verified_by_verovo"])
+
+    def test_non_object_premises_are_rejected(self):
+        payload = fixture()
+        payload["premises"] = ["trust me"]
+        payload["integrity_sha256"] = fingerprint(payload)
+        with self.assertRaisesRegex(growovo_handoff.HandoffError, "premises"):
+            growovo_handoff.validate_handoff(payload)
+
 
 if __name__ == "__main__":
     unittest.main()

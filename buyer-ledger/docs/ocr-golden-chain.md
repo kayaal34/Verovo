@@ -63,8 +63,21 @@ bill-candidates/
 | `value` | OCR/解析候选值；未提取或坏 OCR 一律为 `null`，不是空字符串、0 或默认币种 |
 | `confidence` | 行置信度（粘贴文本为 1.0，OCR 来自引擎） |
 | `evidence` | `text_span`（行号+字符区间+摘录）或 `image_region`（bbox，归一化） |
-| `flags` | `low_confidence`（<0.90）/ `missing_evidence`（截图路径无 bbox）/ `ambiguous_symbol`（仅 `$`/`¥`）/ `line_sum_mismatch` / `not_extracted` |
-| `review` | 人工复核记录：`reviewer/value/original_value/note/at`，`attested_by_declaration` |
+| `flags` | `low_confidence`（<0.90）/ `missing_evidence`（截图路径无 bbox）/ `ambiguous_symbol`（仅 `$`/`¥`）/ `line_sum_mismatch` / `period_end_converted_to_exclusive` / `line_zero_quantity` / `line_arithmetic_mismatch` / `line_field_unparseable` / `not_extracted` |
+| `review` | 人工复核记录：`reviewer/value/original_value/note/at`，`attested_by_declaration`；复核 `line_items` 时另记 `line_issues` 与 `line_issues_accepted` |
+
+`line_items` 还带行级结果：`line_issues[]`（`index/code/detail/raw/expected`）、
+每行的 `needs_review/review_reasons`，以及整体 `review_note`。候选级汇总：
+`confidence`（已取值字段的最小置信度）、`review_notes`（账期换算说明与行问题摘要）、
+`period_end_exclusive` / `period_end_note`（账单写的含尾日期与半开区间的差异说明）。
+
+行算术规则（`_check_line_arithmetic`）：逐行校验 `数量 × 单价 = 行金额`，容差为
+`max(币种最小单位, 行金额的 1%)`（USD 等两位小数币种最小单位 0.01，JPY/KRW 为 1）；
+不一致 → `line_arithmetic_mismatch`，数量为 0 但金额非 0 → `line_zero_quantity`，
+数字无法解析 → `line_field_unparseable`。有问题的行把 `line_items` 置信度压到 ≤0.5
+并进复核队列；人工可用 `review --field line_items` 更正，或在 `--note` 写明接受理由
+（`line_issues_accepted=true`）。**无法解析的行不能靠 note 放行**，必须更正为数字后
+重新复核；接受算术差异也不会绕过“行项目加总 = 账单总额”的入账检查。
 
 状态机：`unreviewed →（全部队列字段确认）→ 可 book 的草稿 →（显式 book）→ booked`；
 在 `book` 前 `status` 始终保持 `unreviewed`，字段自己的 `status` 才变为 `confirmed`。坏 OCR 直接
@@ -85,6 +98,11 @@ bill-candidates/
   （REVIEW_REQUIRED），差异走 close 报告的争议材料。
 - **确认不抹平冲突**：行项目加总与人工确认后的总额不一致时，`book` 仍拒绝；
   必须纠正并重新确认，而不是清掉 flag 后导出另一套精确金额。
+- **不可解析不等于可接受**：行内数量/单价/金额无法解析时，`book` 拒绝且不接受
+  复核 note 放行——OCR 读不出来不是复核人可以替账单承担的判断。
+- **截止日换算说清楚**：账单写的含尾日期（如 `2026-10-31`）在数据层转成半开区间
+  `[2026-10-01, 2026-11-01)`，字段与候选都保留 `period_end_note`，
+  并把该字段置信度降一档（×0.9）说明它是推导值。
 - **多币种不假通过**：复核后的账单币种写入 job；若 usage 或规则属于另一币种，
   close ingest 标记 `UNSUPPORTED_SCOPE`，`mapping --confirm` 拒绝生成 canonical。
   不做汇率换算或跨币种求和。

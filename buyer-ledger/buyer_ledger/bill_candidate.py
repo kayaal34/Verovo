@@ -38,7 +38,7 @@ import re
 import shutil
 import subprocess
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -154,7 +154,6 @@ def _normalize_period(value: Any) -> Dict[str, Any]:
 
 def _period_from_text(start_raw: str, end_raw: str) -> Dict[str, Any]:
     """Invoice text shows an inclusive display range; convert to half-open."""
-    from datetime import timedelta
     start = date.fromisoformat(start_raw)
     end = date.fromisoformat(end_raw)
     if start > end:
@@ -162,6 +161,29 @@ def _period_from_text(start_raw: str, end_raw: str) -> Dict[str, Any]:
     return {"from": start.isoformat(),
             "to": (end + timedelta(days=1)).isoformat(),
             "to_exclusive": True}
+
+
+def _annotate_period(field: Dict[str, Any], display_end: str) -> Dict[str, Any]:
+    """Spell out the inclusive->half-open conversion on the period field.
+
+    ``+1 day`` is deliberate data-layer semantics (close.py enforces the
+    half-open range), so it is kept and explained instead of removed.
+    """
+    value = field.get("value") or {}
+    field["period_end_exclusive"] = True
+    field["note"] = (
+        "账期截止日按不含当日处理：账单写的 %s 实际包含到 %s；数据层用半开区间 "
+        "[%s, %s) 表达。" % (display_end, display_end,
+                             value.get("from"), value.get("to")))
+    field["review_note"] = ("账期由账单文本推得，截止日已 +1 天转为半开区间；"
+                            "复核时确认账单上的起止日")
+    field["flags"] = sorted(set(field.get("flags") or [])
+                            | {"period_end_converted_to_exclusive"})
+    # one notch down: a derived date is never full certainty
+    field["confidence"] = round(float(field.get("confidence") or 0.0) * 0.9, 3)
+    if field["confidence"] < REVIEW_THRESHOLD:
+        field["flags"] = sorted(set(field["flags"]) | {"low_confidence"})
+    return field
 
 
 def _normalize_amount(value: Any) -> str:
@@ -279,20 +301,23 @@ def _extract_fields(lines: List[Dict[str, Any]],
             match = _PERIOD_RANGE_RE.search(text)
             if match:
                 period = _period_from_text(match.group(1), match.group(2))
-                fields.append(_field("period", period, line_record, index,
-                                     match.start(1), match.end(2),
-                                     from_image, key=True))
+                fields.append(_annotate_period(
+                    _field("period", period, line_record, index,
+                           match.start(1), match.end(2), from_image, key=True),
+                    match.group(2)))
                 found.add("period")
                 continue
             match = _PERIOD_MONTH_RE.search(text)
             if match:
                 month = date.fromisoformat(match.group(1) + "-01")
+                next_first = _next_month(month)
                 period = {"from": month.isoformat(),
-                          "to": _next_month(month).isoformat(),
+                          "to": next_first.isoformat(),
                           "to_exclusive": True}
-                fields.append(_field("period", period, line_record, index,
-                                     match.start(1), match.end(1),
-                                     from_image, key=True))
+                fields.append(_annotate_period(
+                    _field("period", period, line_record, index,
+                           match.start(1), match.end(1), from_image, key=True),
+                    (next_first - timedelta(days=1)).isoformat()))
                 found.add("period")
                 continue
         if "amount" not in found:
@@ -383,6 +408,140 @@ def _apply_line_sum_flag(fields: List[Dict[str, Any]]) -> None:
         return
     if total != item_sum:
         amount["flags"] = sorted(set(amount["flags"]) | {"line_sum_mismatch"})
+
+
+#: Zero-decimal currencies: the smallest printed unit is 1, not 0.01.
+_ZERO_DECIMAL_CURRENCIES = {"JPY", "KRW"}
+
+#: Review codes for the per-line arithmetic check. They are review reasons
+#: (the same role as missing_evidence / low_confidence above), not business
+#: vocabulary, so they are defined here rather than in registry/vocabularies.yaml.
+_LINE_ISSUE_LABELS = {
+    "line_field_unparseable": "数量/单价/金额无法解析",
+    "line_zero_quantity": "数量为 0 但行金额非 0",
+    "line_arithmetic_mismatch": "数量×单价与行金额不符",
+}
+
+
+def _line_decimals(currency: Any) -> int:
+    return 0 if _text(currency).upper() in _ZERO_DECIMAL_CURRENCIES else 2
+
+
+def _line_number(value: Any) -> Optional[Decimal]:
+    try:
+        number = Decimal(_text(value).replace(",", ""))
+    except (InvalidOperation, ValueError):
+        return None
+    return number if number.is_finite() else None
+
+
+def _check_line_arithmetic(items: List[Dict[str, Any]],
+                           currency: Any) -> List[Dict[str, Any]]:
+    """Check ``quantity × unit_price == amount`` on every parsed invoice line.
+
+    Tolerance: max(one smallest printed unit, 1% of |line amount|). The
+    smallest unit is 0.01 for two-decimal currencies (the default) and 1 for
+    JPY/KRW; taking the larger of the two keeps zero-decimal currencies strict
+    instead of allowing a whole-amount pass. The relative part absorbs a unit
+    price printed with fewer decimals on a large line; a wrong digit still
+    fails. Rows whose numbers cannot be parsed produce an issue instead of
+    being skipped, and the raw strings stay visible next to the computed value.
+    """
+    decimals = _line_decimals(currency)
+    issues: List[Dict[str, Any]] = []
+    for position, item in enumerate(items):
+        raw = {"quantity": item.get("quantity"),
+               "unit_price": item.get("unit_price"),
+               "amount": item.get("amount")}
+        quantity = _line_number(raw["quantity"])
+        unit_price = _line_number(raw["unit_price"])
+        amount = _line_number(raw["amount"])
+        code = ""
+        detail = ""
+        expected: Optional[Decimal] = None
+        if quantity is None or unit_price is None or amount is None:
+            code = "line_field_unparseable"
+            detail = "数量/单价/金额缺失或不是数字，无法做行算术校验"
+        elif quantity == 0 and amount != 0:
+            code = "line_zero_quantity"
+            detail = "数量为 0，行金额却是 %s" % _text(raw["amount"])
+        else:
+            expected = quantity * unit_price
+            tolerance = max(Decimal(1).scaleb(-decimals),
+                            Decimal("0.01") * abs(amount))
+            if abs(expected - amount) > tolerance:
+                code = "line_arithmetic_mismatch"
+                detail = ("数量 %s × 单价 %s = %s，行金额 %s，相差 %s，容差 %s"
+                          % (_text(raw["quantity"]), _text(raw["unit_price"]),
+                             format(expected, ".%df" % decimals),
+                             _text(raw["amount"]),
+                             format(abs(expected - amount), ".%df" % decimals),
+                             format(tolerance, ".%df" % decimals)))
+        item["needs_review"] = bool(code)
+        item["review_reasons"] = [code] if code else []
+        if code:
+            issues.append({
+                "index": position,
+                "line": (item.get("evidence") or {}).get("line"),
+                "code": code,
+                "detail": detail,
+                "raw": raw,
+                "expected": (format(expected, ".%df" % decimals)
+                             if expected is not None else None),
+            })
+    return issues
+
+
+def _apply_line_arithmetic(fields: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Attach per-line issues and a downgraded confidence to ``line_items``."""
+    by_name = {f["name"]: f for f in fields}
+    items = by_name.get("line_items")
+    currency = (by_name.get("currency") or {}).get("value")
+    if not items or not isinstance(items.get("value"), list) or not items["value"]:
+        return []
+    issues = _check_line_arithmetic(items["value"], currency)
+    items["line_issues"] = issues
+    if issues:
+        codes = sorted({issue["code"] for issue in issues})
+        items["flags"] = sorted(set(items.get("flags") or []) | set(codes))
+        items["confidence"] = round(
+            min(float(items.get("confidence") or 0.0), 0.5), 3)
+        items["review_note"] = (
+            "%d 行算术校验未通过（%s）；逐行核对数量、单价、行金额，"
+            "必要时以 review --field line_items 更正后再入账"
+            % (len(issues), "、".join(_LINE_ISSUE_LABELS[c] for c in codes)))
+    else:
+        items["review_note"] = (
+            "%d 行算术校验通过（数量×单价=行金额，容差为币种最小单位×金额的 1%%）"
+            % len(items["value"]))
+    return issues
+
+
+def _candidate_confidence(fields: List[Dict[str, Any]], status: str) -> float:
+    """Whole-draft confidence: the weakest extracted field, 0.0 when blocked."""
+    if status == "blocked_user_input":
+        return 0.0
+    valued = [float(field.get("confidence") or 0.0) for field in fields
+              if field.get("value") not in (None, "", [])]
+    return round(min(valued), 3) if valued else 0.0
+
+
+def _candidate_review_notes(fields: List[Dict[str, Any]], status: str) -> List[str]:
+    if status == "blocked_user_input":
+        return ["OCR 文本无法使用，未提取任何字段；候选只是草稿，不会入账"]
+    notes: List[str] = []
+    for field in fields:
+        if field["name"] == "period" and field.get("note"):
+            notes.append(field["note"])
+        issues = field.get("line_issues") or []
+        if issues:
+            notes.append("%s 有 %d 行算术问题：%s"
+                         % (field["name"], len(issues),
+                            "、".join(sorted({i["code"] for i in issues}))))
+        elif field.get("flags"):
+            notes.append("%s 待复核：%s"
+                         % (field["name"], "、".join(field["flags"])))
+    return notes
 
 
 # ---------------------------------------------------------------------------
@@ -934,6 +1093,7 @@ def add_candidate(store: Path, *, engine: str = "text", pasted_text: str = None,
         else:
             fields = _extract_fields(lines_payload, from_image)
             _apply_line_sum_flag(fields)
+            _apply_line_arithmetic(fields)
             status = "unreviewed"
             blocked = None
 
@@ -955,6 +1115,15 @@ def add_candidate(store: Path, *, engine: str = "text", pasted_text: str = None,
                 "ocr_payload": "ocr.json" if from_image else None,
             },
             "fields": fields,
+            "confidence": _candidate_confidence(fields, status),
+            "review_notes": _candidate_review_notes(fields, status),
+            "period_end_exclusive": next(
+                (field["period_end_exclusive"] for field in fields
+                 if field["name"] == "period" and field.get("period_end_exclusive")),
+                None),
+            "period_end_note": next(
+                (field["note"] for field in fields
+                 if field["name"] == "period" and field.get("note")), None),
             "blocked": blocked,
             "duplicate_of": [],
             "booking": None,
@@ -1096,6 +1265,21 @@ def review_field(store: Path, candidate_id: str, *, field: str, value: Any,
         raise CloseError("INPUT_REQUIRED",
                          "field %s cannot be confirmed empty; supply the value "
                          "from the bill or leave it pending" % field)
+    line_issues: List[Dict[str, Any]] = []
+    if field == "line_items":
+        if isinstance(normalized, str):
+            try:
+                parsed = json.loads(normalized)
+            except json.JSONDecodeError as exc:
+                raise CloseError("INPUT_REQUIRED",
+                                 "line_items 复核值必须是 JSON 数组：%s" % exc) from exc
+            if not isinstance(parsed, list):
+                raise CloseError("INPUT_REQUIRED",
+                                 "line_items 复核值必须是 JSON 数组")
+            normalized = parsed
+        if isinstance(normalized, list):
+            line_issues = _check_line_arithmetic(
+                normalized, _field_value(candidate, "currency"))
     original = target.get("value")
     target["review"] = {
         "reviewer": _text(reviewer),
@@ -1105,9 +1289,26 @@ def review_field(store: Path, candidate_id: str, *, field: str, value: Any,
         "at": _now_iso(),
         "attestation": "attested_by_declaration",
     }
+    if field == "line_items":
+        target["review"]["line_issues"] = [issue["code"] for issue in line_issues]
+        target["review"]["line_issues_accepted"] = bool(line_issues and _text(note))
     target["value"] = normalized
     target["status"] = "confirmed"
     target["flags"] = []
+    if field == "line_items" and isinstance(normalized, list):
+        target["line_issues"] = line_issues
+        if line_issues:
+            target["flags"] = sorted({issue["code"] for issue in line_issues})
+            target["confidence"] = round(
+                min(float(target.get("confidence") or 0.0), 0.5), 3)
+            target["review_note"] = (
+                "复核后仍有 %d 行算术不一致；%s"
+                % (len(line_issues),
+                   "note 已写明接受理由"
+                   if _text(note)
+                   else "入账前需在 --note 写明接受理由，或更正数值后重新复核"))
+        else:
+            target["review_note"] = ("复核后 %d 行算术校验通过" % len(normalized))
     _write_candidate(store, candidate)
     return candidate
 
@@ -1233,6 +1434,44 @@ def _book_locked(store: Path, candidate_id: str, *, reviewer: str, into: Path,
         raise CloseError("REVIEW_REQUIRED",
                          "%s already exists; a booking never overwrites an operator "
                          "job — use a fresh bundle or a close revision" % job_path)
+
+    items_field = next((field for field in candidate.get("fields", [])
+                        if field["name"] == "line_items"), None)
+    unresolved = (items_field or {}).get("line_issues") or []
+    unparseable = [issue for issue in unresolved
+                   if issue.get("code") == "line_field_unparseable"]
+    if unparseable:
+        rows = "；".join(
+            "第 %d 行数量/单价/行金额无法解析（数量 %s，单价 %s，行金额 %s）"
+            % (issue["index"] + 1,
+               _text(issue["raw"].get("quantity")),
+               _text(issue["raw"].get("unit_price")),
+               _text(issue["raw"].get("amount")))
+            for issue in unparseable[:3])
+        more = ("；另有 %d 行" % (len(unparseable) - 3)
+                if len(unparseable) > 3 else "")
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "%s%s。先更正为数字并重新复核 line_items，无法解析的行不能靠 "
+            "note 放行" % (rows, more))
+    if unresolved and not ((items_field or {}).get("review") or {}).get(
+            "line_issues_accepted"):
+        rows = "；".join(
+            "第 %d 行%s（数量 %s × 单价 %s = %s，行金额 %s）"
+            % (issue["index"] + 1,
+               _LINE_ISSUE_LABELS.get(issue["code"], issue["code"]),
+               _text(issue["raw"].get("quantity")),
+               _text(issue["raw"].get("unit_price")),
+               issue.get("expected") or "无法计算",
+               _text(issue["raw"].get("amount")))
+            for issue in unresolved[:3])
+        more = ("；另有 %d 行" % (len(unresolved) - 3)
+                if len(unresolved) > 3 else "")
+        raise CloseError(
+            "REVIEW_REQUIRED",
+            "%d 行算术校验未通过：%s%s。复核 line_items 并在 --note 写明接受理由，"
+            "或更正数值后重新复核，再入账"
+            % (len(unresolved), rows, more))
 
     items = _field_value(candidate, "line_items") or []
     if items:
