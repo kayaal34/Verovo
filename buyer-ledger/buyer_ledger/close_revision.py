@@ -1867,12 +1867,14 @@ def _signoff_locked(case_dir: Path, *, reviewer: str, approved_scope: str = "",
     }
     delivered_md = close_report._report_markdown(delivered).rstrip("\n")
     delivered_md += "\n\n## 签核\n\n"
-    delivered_md += "- 状态：%s\n" % state
+    delivered_md += "- 签核状态：%s\n" % state
     delivered_md += "- 签核人：%s\n" % reviewer
     delivered_md += "- 签核时间：%s\n" % decided_at
     delivered_md += "- 核验范围指纹：%s\n" % scope_hash
     delivered_md += "- 付款授权：False（签核是声明，不等于付款授权）\n"
-    delivered_md += ("- 说明：%s\n" % record["boundary"])
+    delivered_md += ("- 说明：已签核不等于所有差异已解决（未闭合项 %d 条）。\n"
+                     % len(unresolved))
+    delivered_md += ("- 边界：%s\n" % record["boundary"])
     if record["reservations"]:
         delivered_md += "- 保留意见：%s\n" % "；".join(record["reservations"])
     writes = [_write_descriptor(case_dir, "signoff", target / "signoff.json",

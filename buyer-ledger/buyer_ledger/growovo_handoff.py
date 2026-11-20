@@ -87,6 +87,9 @@ def validate_handoff(payload: Dict[str, Any]) -> Dict[str, Any]:
         raise HandoffError("handoff booking_status must remain evidence_only_not_canonical")
     if payload.get("external_action_executed_by_export") is not False:
         raise HandoffError("export must not claim to execute an external action")
+    premises = payload.get("premises")
+    if premises is not None and not isinstance(premises, dict):
+        raise HandoffError("premises must be an object when present")
     _reject_sensitive(payload)
     return {
         "run_id": run_id, "integrity_sha256": supplied,
@@ -94,6 +97,7 @@ def validate_handoff(payload: Dict[str, Any]) -> Dict[str, Any]:
         "business_events": len(payload["business_events"]),
         "contexts": len(payload["askovo_contexts"]),
         "source_grades": payload.get("evidence_grade"),
+        "premises": premises,
     }
 
 
@@ -129,6 +133,8 @@ def import_handoff(source, output_dir) -> Dict[str, Any]:
         "counts": {key: checked[key] for key in
                    ("operations", "business_events", "contexts")},
         "source_evidence_grade": checked["source_grades"],
+        "source_premises": checked["premises"],
+        "premises_do_not_upgrade_grade": True,
         "booking_status": "evidence_only_not_canonical",
         "receipt_verified_by_verovo": False,
         "business_outcome_observed_by_verovo": False,
@@ -137,6 +143,7 @@ def import_handoff(source, output_dir) -> Dict[str, Any]:
         "open_items": [
             "Map each needed operation/event to an explicit buyer-controlled source.",
             "Review source independence, time window, account and evidence hash.",
+            "Re-check the handoff premises (scope, assumptions, limits) against buyer-controlled sources; they do not upgrade evidence grade.",
             "Do not book a charge, accept delivery or recognize revenue from this handoff alone.",
         ],
         "terminal_state": "DELIVERED_WITH_GAP",
@@ -159,6 +166,7 @@ def import_handoff(source, output_dir) -> Dict[str, Any]:
         "booking_status": evidence["booking_status"],
         "terminal_state": evidence["terminal_state"],
         "counts": evidence["counts"],
+        "source_premises_present": checked["premises"] is not None,
         "receipt_verified_by_verovo": False,
         "business_outcome_observed_by_verovo": False,
     }

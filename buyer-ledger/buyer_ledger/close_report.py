@@ -1002,6 +1002,86 @@ def _open_items(lines: List[Dict[str, Any]], findings: List[Dict[str, Any]],
     return items
 
 
+_OPEN_ITEM_ROOT_CAUSES = {
+    "missing_invoice_lines": "账单行缺失",
+    "missing_charge_id": "账单行缺少 charge_id",
+    "missing_invoice_amount": "账单行缺少金额",
+    "currency_unknown": "账单行币种未知",
+    "period_outlier": "行落在账期之外",
+    "credit_or_refund_not_applied": "信用/退款未实际应用",
+    "invoice_reconciled_unprovable": "缺少第二来源，无法跨源对账",
+    "invoice_reconciled_fail": "两个来源的金额不一致",
+    "rule_repriced_fail": "与合同规则重算不一致",
+    "rule_repriced_unknown": "规则无法判定该行",
+    "adjustment_sign_mismatch": "调整项符号与其类型矛盾",
+    "unsupported_adjustment_type": "不支持的调整类型",
+    "invoice_draft": "发票/OCR 文档未审阅",
+    "buyer_verified_unprovable": "缺少买方控制的来源",
+    "unverified_outcome": "任务结果未验证",
+}
+
+_OPEN_ITEM_MISSING_FIELDS = {
+    "missing_invoice_lines": "账单行",
+    "missing_charge_id": "charge_id",
+    "missing_invoice_amount": "金额",
+    "currency_unknown": "币种",
+    "period_outlier": "服务日期与账期",
+    "credit_or_refund_not_applied": "信用应用记录",
+    "invoice_reconciled_unprovable": "独立用量或成本来源",
+    "invoice_reconciled_fail": "一致的行金额",
+    "rule_repriced_fail": "合同价格与数量证据",
+    "rule_repriced_unknown": "适用价格规则",
+    "adjustment_sign_mismatch": "带符号的调整凭据",
+    "unsupported_adjustment_type": "调整类型分类",
+    "invoice_draft": "人工审阅结果",
+    "buyer_verified_unprovable": "买方控制的用量或成本记录",
+    "unverified_outcome": "任务/运行/结果证据",
+}
+
+
+def _open_item_source(item: Dict[str, Any]) -> str:
+    refs = [item.get("line_ref")] + list(item.get("evidence_refs") or [])
+    for ref in refs:
+        text = _text(ref)
+        if not text or text.startswith(("period:", "charge:")):
+            continue
+        if "#" in text:
+            return text.split("#", 1)[0]
+        if text.endswith((".csv", ".jsonl", ".json")):
+            return text
+    return "general"
+
+
+def _group_open_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Group identical causes so a 20-row gap is one request, not 20.
+
+    The detail list keeps every item; the group only names the shared root
+    cause, the affected count, two representative item ids and one action.
+    """
+    groups: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    for item in items:
+        kind = _text(item.get("kind")) or "open_item"
+        source = _open_item_source(item)
+        missing_field = _OPEN_ITEM_MISSING_FIELDS.get(kind, "")
+        key = (kind, source, missing_field)
+        group = groups.get(key)
+        if group is None:
+            group = {
+                "root_cause": _OPEN_ITEM_ROOT_CAUSES.get(kind, kind),
+                "kind": kind,
+                "source": source,
+                "missing_field": missing_field or None,
+                "count": 0,
+                "samples": [],
+                "action": _text(item.get("next_evidence")) or "人工复核",
+            }
+            groups[key] = group
+        group["count"] += 1
+        if len(group["samples"]) < 2:
+            group["samples"].append(item.get("id"))
+    return list(groups.values())
+
+
 def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
                        review: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     case_dir = Path(case_dir)
@@ -1201,6 +1281,7 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
     from . import close_actions
     open_items, difference_actions = close_actions.project_open_items(
         case_dir, open_items)
+    open_item_groups = _group_open_items(open_items)
     review_projection = _review_projection(review, open_items)
     economics = outcome.get("economics")
     if economics is None:
@@ -1356,6 +1437,7 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
                       "second amount"),
         },
         "open_items": open_items,
+        "open_item_groups": open_item_groups,
         "difference_actions": difference_actions,
         "signoff": dict(review_projection.get("signoff") or {
             "state": "not_signed", "by": None, "at": None}),
@@ -1392,7 +1474,105 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
             } for line in lines],
         },
     }
+    report["amount_layers"] = _money_layers(report)
     return report
+
+
+def _money_layers(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Name what is known, unknown and who must supply the missing input.
+
+    A missing economics source or incomplete invoice is not a row of dashes:
+    each layer says why the number is absent and what changes that.
+    """
+    amounts = report["amounts"]
+    economics = report.get("task_economics") or {}
+    open_items = report.get("open_items") or []
+    currency = report["scope"]["currency"]
+
+    confirmed = ["%s %s %s" % (label, amounts[key], currency)
+                 for label, key in (
+                     ("供应商账单总额", "invoice_total"),
+                     ("按已批准规则重新计价", "rule_repriced_subtotal"),
+                     ("来自独立来源的可归属金额", "distinct_source_reconciled"),
+                     ("已解释调整项", "known_adjustments"),
+                     ("未解释差额", "open_difference"))
+                 if amounts.get(key) not in (None, "")]
+
+    unallocated = [row for row in (economics.get("unallocated") or [])
+                   if isinstance(row, dict)]
+    if unallocated:
+        samples = []
+        for row in unallocated[:2]:
+            samples.append("%s %s %s" % (
+                _text(row.get("kind")) or "未归属",
+                _text(row.get("amount")) or "金额未知",
+                _text(row.get("currency")) or currency))
+        unattributed = "%d 笔未归属成本：%s" % (len(unallocated),
+                                              "；".join(samples))
+    elif economics.get("status") == "not_applicable":
+        unattributed = ("不适用：本期未纳入 outcomes 来源，没有任务成本需要归因"
+                        "（不是 0）")
+    else:
+        unattributed = "无：没有登记未归属成本"
+
+    if open_items:
+        samples = ["%s（%s）" % (
+            item.get("id"),
+            _OPEN_ITEM_ROOT_CAUSES.get(_text(item.get("kind")),
+                                       _text(item.get("kind"))))
+            for item in open_items[:2]]
+        missing_records = "%d 条待处理项，例如 %s" % (
+            len(open_items), "、".join(samples))
+    else:
+        missing_records = "无"
+
+    unknown_fields = []
+    if amounts.get("invoice_total") in (None, ""):
+        unknown_fields.append("供应商账单总额（缺完整的账单行或金额）")
+    for label, key in (("完全加载成本", "fully_loaded_cost"),
+                       ("cost per verified success", "cost_per_verified_success"),
+                       ("ROI", "roi")):
+        if economics.get(key) in (None, ""):
+            unknown_fields.append(label)
+    if unknown_fields:
+        if economics.get("status") == "not_applicable":
+            reason = "缺 outcomes 来源与已验证成功数"
+        else:
+            reason = (_text(economics.get("reason"))
+                      or "缺已验证结果或成本归因")
+        not_computable = "%s（%s）" % ("、".join(unknown_fields), reason)
+    else:
+        not_computable = "无：核心经济指标均已计算"
+
+    inputs = []
+    if amounts.get("invoice_total") in (None, ""):
+        inputs.append("财务补齐账单行（charge_id、金额、币种）")
+    if economics.get("status") == "not_applicable" or \
+            economics.get("cost_per_verified_success") in (None, ""):
+        inputs.append("运营提供 outcomes 导出（task_id、status、verified、value）")
+    if economics.get("fully_loaded_cost") in (None, ""):
+        inputs.append("财务与运营确认完全加载成本口径")
+    if economics.get("roi") in (None, ""):
+        inputs.append("运营确认已验证成功的业务价值口径后计算 ROI")
+    needed_inputs = "；".join(inputs) or "无：指标已完整，无需补充"
+
+    return {
+        "confirmed": {"items": confirmed,
+                      "text": "；".join(confirmed) or
+                      "无：账单行或金额缺失，总额是未知而不是 0"},
+        "unattributed": {"count": len(unallocated), "text": unattributed},
+        "missing_records": {"count": len(open_items), "text": missing_records},
+        "not_computable": {"text": not_computable},
+        "needed_inputs": {"items": inputs, "text": needed_inputs},
+    }
+
+
+def _needs_money_layers(report: Dict[str, Any]) -> bool:
+    economics = report.get("task_economics") or {}
+    return (economics.get("status") == "not_applicable"
+            or report["amounts"].get("invoice_total") in (None, "")
+            or economics.get("cost_per_verified_success") in (None, "")
+            or economics.get("roi") in (None, ""))
 
 
 def _report_markdown(report: Dict[str, Any]) -> str:
@@ -1476,6 +1656,19 @@ def _report_markdown(report: Dict[str, Any]) -> str:
         len(action_summary.get("unresolved_item_refs") or [])))
     lines.append("- 处置记录不是供应商回执核验，也不是付款授权；只有显式 resolved 才关闭该项。")
     lines.append("")
+    if report.get("open_item_groups"):
+        lines.append("**根因分组（同一原因只处理一次）**")
+        lines.append("")
+        lines.append("| 根因 | 影响条数 | 代表样例 | 处理动作 |")
+        lines.append("|---|---:|---|---|")
+        for group in report["open_item_groups"]:
+            lines.append("| %s | %d | %s | %s |" % (
+                group["root_cause"], group["count"],
+                "、".join(str(sample) for sample in group["samples"]),
+                group["action"]))
+        lines.append("")
+        lines.append("**逐条明细**")
+        lines.append("")
     if report["open_items"]:
         lines.append("| ID | 类型 | 状态 | 最新处置 | 来源凭据 | 行 | 金额 | 责任方 |")
         lines.append("|---|---|---|---|---|---|---:|---|")
@@ -1487,18 +1680,30 @@ def _report_markdown(report: Dict[str, Any]) -> str:
                 item["line_ref"] or "—", item["amount"] or "—", item["owner"]))
     else:
         lines.append("（无 open items）")
+    layers = report.get("amount_layers") or {}
+    lines.extend(["", "## 七、Task Economics", ""])
+    if _needs_money_layers(report) and layers:
+        lines.extend([
+            "- 状态：%s" % report["task_economics"]["status"],
+            "- 已确认金额：%s" % layers["confirmed"]["text"],
+            "- 未归属金额：%s" % layers["unattributed"]["text"],
+            "- 缺失记录：%s" % layers["missing_records"]["text"],
+            "- 无法计算：%s" % layers["not_computable"]["text"],
+            "- 需要补充：%s" % layers["needed_inputs"]["text"],
+        ])
+    else:
+        lines.extend([
+            "- 状态：%s" % report["task_economics"]["status"],
+            "- fully loaded cost：%s" % _display(report["task_economics"]["fully_loaded_cost"]),
+            "- cost per verified success：%s" % _display(report["task_economics"]["cost_per_verified_success"]),
+            "- ROI：%s" % _display(report["task_economics"]["roi"]),
+        ])
     lines.extend([
-        "",
-        "## 七、Task Economics",
-        "",
-        "- 状态：%s" % report["task_economics"]["status"],
-        "- fully loaded cost：%s" % _display(report["task_economics"]["fully_loaded_cost"]),
-        "- cost per verified success：%s" % _display(report["task_economics"]["cost_per_verified_success"]),
-        "- ROI：%s" % _display(report["task_economics"]["roi"]),
         "",
         "## 八、审核区",
         "",
-        "- 状态：%s" % report["review"]["state"],
+        "- 审阅状态：%s" % report["review"]["state"],
+        "- 说明：审阅状态只表示复核进度，不等于签核；已签核也不等于所有差异已解决。",
         "- 复核人：%s（%s）" % (report["review"]["by"] or "—",
                                report["review"]["at"] or "—"),
         "- 批准范围：%s" % (report["review"]["approved_scope"] or "—"),
@@ -1513,7 +1718,10 @@ def _report_markdown(report: Dict[str, Any]) -> str:
         "- 输入快照指纹：`%s`" % report["replay"]["canonical_fingerprint"],
         "- 规则表 hash：`%s`" % report["replay"]["rule_map_sha256"],
         "- 代码版本：`%s`" % report["replay"]["code_version"],
-        "- 输出快照指纹：`%s`" % (report["replay"]["output_snapshot_fingerprint"] or "—"),
+        "- 输出快照指纹：%s" % (
+            "`%s`" % report["replay"]["output_snapshot_fingerprint"]
+            if report["replay"]["output_snapshot_fingerprint"]
+            else "未生成（calculate 未写入输出快照）"),
         "",
     ])
     lines.extend("- %s" % item for item in report["limitations"])
