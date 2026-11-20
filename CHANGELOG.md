@@ -1,3 +1,27 @@
+## v0.15.0 - 2026-11-20
+
+V-21 / V-02 from the 2026-11-19/20 full-scenario end-to-end test.
+
+### Fixed
+
+- **V-21 the accepting party is a controlled identity, not a self-declared
+  string**: acceptance authority now comes from the controlled organization
+  record and credentials. A supplier accepting its own delivery, an unknown
+  organization, or a forged buyer label is `UNPROVABLE` and can never reach
+  Buyer Verified `PASS`. The report header shows who actually accepted.
+  `AcceptanceAuthorityTests` covers supplier, unknown-org, forged-string and
+  legitimate-buyer cases.
+- **V-02 the delivered report is regenerated after signoff**: signoff now
+  re-renders `report-delivered.md`/`.json` bound to the signed revision, the
+  input fingerprint and the signoff reference. The pre-signoff snapshot is kept
+  and labelled as pre-signoff. Evidence added after signoff can only produce a
+  new revision; it never mutates the signed report.
+
+### Note
+
+The Growovo evidence handoff remains evidence-only: importing it does not
+upgrade its grade, prove supplier acceptance or authorize payment.
+
 ## v0.14.3 - 2026-11-19
 
 V-09 / V-10 from the 2026-11-18 review.
