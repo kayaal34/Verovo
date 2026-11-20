@@ -1,15 +1,13 @@
 # Verovo local CLI
 
-Buyer-side tools for AI service charges and delivery, with local developer diagnostics.
-The **`review`** command evaluates separate charge and delivery criteria using
-local JSON evidence. It is part of the v0.10.0 release tag.
+Review the charges and delivery for one AI supplier in one billing period. Supply the billing rules and buyer criteria, inspect each verdict and see which records are missing. The CLI also checks supported local agent logs.
 
 ```bash
-python3 healthcheck/verovo review --sample --html buyer-review.html
+pipx install verovo
+verovo review --sample --html buyer-review.html
 ```
 
-Run from the repository root. [Buyer task guide](../docs/buyer-review.md) ·
-[Product definition](../docs/product-definition.md).
+Open the sample report to inspect a matching charge, an unmet requirement and a missing observation. [Buyer task guide](https://github.com/roy-tong/Verovo/blob/main/docs/buyer-review.md) · [Product website](https://roy-tong.github.io/Verovo/).
 
 ## Developer Healthcheck
 
