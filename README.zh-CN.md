@@ -2,11 +2,11 @@
 
 <img src="assets/verovo-logo-card.png" alt="Verovo" width="300">
 
-**算清每项 AI 任务的真实成本，以及业务结果值不值得。**
+**在验收或续约前，核对一家 AI 供应商的一个账期**
 
-Verovo 连接买方日志、供应商账单、财务记录和业务结果：先核查费用与交付，再归集直接成本、分摊共享费用，计算单任务成本、成功任务成本和有证据支持的 ROI。
+把合同计费规则、账单、用量和交付记录放在一起，分别查看费用差异、交付是否达标和材料覆盖范围。供应商自认的交付仍需买方证据。签核后的报告绑定当时的记录，后补材料进入新修订。
 
-面向采购或运营 AI 服务的业务、工程和财务团队，交付可复算的经济账与待补证清单。主分支已提供本地 `economics` 计算；自动票据解析、流程优化和保险仍是后续方向。[当前能力与技术取舍](docs/feature-status.md)。
+面向采购或运营 AI 服务的业务、工程和财务团队，交付可复算的经济账与待补证清单。本地 `economics` 支持按任务分摊费用。票据提取生成待审草稿，入账需核对规则与用量。[当前能力与技术取舍](docs/feature-status.md)。
 
 <p align="center">
   <img src="assets/launch/hero.svg" alt="Verovo 将收费规则、用量与费用记录、交付证据汇入一次本地买方核验，费用与交付分别给出 PASS / FAIL / UNPROVABLE 结论" width="720">
@@ -71,7 +71,7 @@ Agent 宿主可通过 MCP 只读调用同一核验（`verovo-mcp`：`verovo_revi
 ## 使用已有核账工具
 
 ```bash
-python3 -m pip install "verovo==0.13.0"
+python3 -m pip install verovo
 verovo recount --sample
 ```
 

@@ -1,6 +1,8 @@
 # Verovo: implementation status
 
-Reviewed 2026-11-04 against the **v0.13.0 release**. Available means local implementation, not production validation on every platform.
+**Release update, 2026-11-20 · [v0.15.1](../CHANGELOG.md).** Buyer acceptance uses a controlled organization identity. A supplier declaration alone leaves acceptance unproven. Signoff produces a delivered report tied to the signed revision and input fingerprint.
+
+Earlier baseline reviewed 2026-11-04 against the **v0.13.0 release**. Available means local implementation, not production validation on every platform.
 
 ## Canonical finance: completion axes (V1)
 

@@ -9,7 +9,7 @@
 
 Verovo is buyer-first: verify AI service charges and delivery independently or together.
 Read [product-definition.md](docs/product-definition.md) before changing product scope.
-The main-preview `review` command compares explicit buyer criteria with local JSON
+The released `review` command compares explicit buyer criteria with local JSON
 observations; missing evidence remains UNPROVABLE. `delivery` is an effort journal,
 not the buyer acceptance command. Technical tools and POCs do not redefine the product.
 
