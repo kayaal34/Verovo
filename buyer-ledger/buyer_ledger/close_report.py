@@ -227,6 +227,14 @@ def _verify_job_against_manifest(job: Dict[str, Any],
                 "period-job %s (%r) no longer matches canonical (%r); re-ingest "
                 "and re-confirm before reporting"
                 % (label, job_value, manifest_value))
+    buyer = manifest.get("buyer")
+    manifest_buyer = _text(buyer.get("org_id")) if isinstance(buyer, dict) else ""
+    if manifest_buyer and _text(job.get("buyer")) != manifest_buyer:
+        raise CloseError(
+            "STALE_SOURCE",
+            "period-job buyer (%r) no longer matches the controlled canonical "
+            "buyer organization (%r); re-ingest and re-confirm before reporting"
+            % (job.get("buyer"), manifest_buyer))
 
 
 def _load_canonical_finance():
@@ -1224,6 +1232,30 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
             "findings": economics.get("findings") or [],
         }
 
+    authority_raw = outcome.get("acceptance_authority") or {}
+    authority_observed = authority_raw.get("observed") or []
+    qualified_signers = sorted({_text(row.get("accepted_by")) for row in authority_observed
+                                if row.get("qualified") and _text(row.get("accepted_by"))})
+    authority_org = _text(authority_raw.get("org_id"))
+    if qualified_signers:
+        headline = "%s（受控组织 %s；来源：manifest.buyer.acceptance_signers）" % (
+            "、".join(qualified_signers), authority_org)
+    elif authority_org:
+        headline = ("未识别（受控组织 %s 下无合格验收记录；本次不认定任何验收）"
+                    % authority_org)
+    else:
+        headline = "未识别（未配置受控买方组织；本次不认定任何验收）"
+    acceptance_authority = {
+        "configured": bool(authority_raw.get("configured")),
+        "org_id": authority_org or None,
+        "org_name": _text(authority_raw.get("org_name")) or None,
+        "source": authority_raw.get("source"),
+        "qualified_signers": qualified_signers,
+        "display": "、".join(qualified_signers) if qualified_signers else "未识别",
+        "headline": headline,
+        "observed": authority_observed,
+    }
+
     limitations = [
         "single currency; no FX conversion and no cross-currency summation",
         "unreviewed invoice/OCR documents are not booked as cost",
@@ -1234,6 +1266,10 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
         "rule applicability is human-confirmed; this report does not re-sign rules",
         "this report is not a payment authorization",
     ]
+    if outcome.get("delivery_status") != "not_applicable" and not qualified_signers:
+        limitations.append(
+            "no qualified controlled-buyer acceptance record; Delivery Accepted "
+            "stays UNPROVABLE and this report does not confirm delivery")
     domains = _source_domains(manifest)
     if not any(domain == "buyer" for domain in domains.values()):
         limitations.append(
@@ -1258,6 +1294,7 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
             "currency": job["currency"],
         },
         **{axis: outcome.get(axis) for axis in AXES},
+        "acceptance_authority": acceptance_authority,
         "axes_semantics": {
             "finance_status": "financial records, reconciliation gaps and cost "
                               "allocation are closed as an operating state; it does "
@@ -1360,9 +1397,11 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
 
 def _report_markdown(report: Dict[str, Any]) -> str:
     amounts = report["amounts"]
+    authority = report.get("acceptance_authority") or {}
     lines = [
         "# 买方可签核月结报告 · %s" % report["job_id"],
         "",
+        "> 实际验收方：%s" % (authority.get("headline") or "未识别"),
         "> %s" % report["disclaimer"],
         "",
         "## 一、核验范围",

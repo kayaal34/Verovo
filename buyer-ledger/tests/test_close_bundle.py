@@ -201,9 +201,9 @@ class DeliveryAndDisputeTests(CloseBundleTestBase):
         row = delivery["rows"][0]
         self.assertEqual("UNPROVABLE", row["status"])
         self.assertEqual("same_vendor_control_domain", row["independence"])
-        self.assertEqual(
-            "Delivery acceptance lacks buyer-independent verification.",
-            row["reason"])
+        self.assertIn("vendor self-acceptance cannot support Buyer Verified",
+                      row["reason"])
+        self.assertIn("controlled buyer organization", row["reason"])
         self.assertTrue(any("UNKNOWN/UNPROVABLE" in gap
                             for gap in delivery["gaps"]))
 

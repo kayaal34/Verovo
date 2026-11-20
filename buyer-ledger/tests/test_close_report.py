@@ -75,8 +75,8 @@ def _rules(unit_price="0.020"):
     }
 
 
-def _job(sources, *, rule_map="contract-rules.json"):
-    return {
+def _job(sources, *, rule_map="contract-rules.json", extra=None):
+    job = {
         "schema": "verovo.period-job/1",
         "job_id": "close-2026-10-a",
         "buyer": "buyer-1", "vendor": "vendor-1", "account": "acct-1",
@@ -88,6 +88,9 @@ def _job(sources, *, rule_map="contract-rules.json"):
         "task_economics_requested": False,
         "approved_by": None,
     }
+    if extra:
+        job.update(extra)
+    return job
 
 
 def _source(role, path, control_domain="vendor"):
@@ -104,8 +107,8 @@ class CloseReportTestBase(unittest.TestCase):
         self.case = self.root / "close-2026-10"
 
     def write_bundle(self, *, sources, bills=None, usage=None, outcomes=None,
-                     rule_map=None):
-        job = _job(sources)
+                     rule_map=None, job_extra=None):
+        job = _job(sources, extra=job_extra)
         (self.bundle / "period-job.json").write_text(
             json.dumps(job, indent=2) + "\n", encoding="utf-8")
         if bills is not None:
@@ -247,6 +250,52 @@ class IndependentAxesTests(CloseReportTestBase):
             self.assertEqual("partial", empty["economics_status"])
             self.assertEqual("partial", empty["task_economics"]["status"])
             self.case = old_case
+
+
+class AcceptanceAuthorityTests(CloseReportTestBase):
+    """V-21: the report names the controlled acceptance owner on its first line."""
+
+    def _delivery_sources(self):
+        return [_source("bills", "bill-export.csv"),
+                _source("usage", "usage-export.jsonl"),
+                _source("outcomes", "outcomes.csv", "buyer")]
+
+    def test_report_first_line_names_the_authorized_signer(self):
+        report = self.report(
+            sources=self._delivery_sources(),
+            bills=self.full_bills(),
+            usage=USAGE,
+            outcomes=OUTCOME_HEADER +
+            "t1,o1,success,true,Buyer Owner,2026-10-31T00:00:00Z,"
+            "outcomes.csv#o1,100.00,USD\n",
+            job_extra={"buyer_signers": ["Buyer Owner"]})
+        self.assertEqual("PASS", report["verdicts"]["Delivery Accepted"]["status"])
+        authority = report["acceptance_authority"]
+        self.assertTrue(authority["configured"])
+        self.assertEqual("buyer-1", authority["org_id"])
+        self.assertEqual(["Buyer Owner"], authority["qualified_signers"])
+        lines = close_report._report_markdown(report).splitlines()
+        self.assertEqual(
+            "> 实际验收方：Buyer Owner（受控组织 buyer-1；来源：manifest.buyer.acceptance_signers）",
+            lines[2])
+
+    def test_vendor_self_acceptance_leaves_the_report_unidentified(self):
+        report = self.report(
+            sources=self._delivery_sources(),
+            bills=self.full_bills(),
+            usage=USAGE,
+            outcomes=OUTCOME_HEADER +
+            "t1,o1,success,true,vendor-1,2026-10-31T00:00:00Z,"
+            "outcomes.csv#o1,100.00,USD\n")
+        self.assertEqual("UNPROVABLE",
+                         report["verdicts"]["Delivery Accepted"]["status"])
+        authority = report["acceptance_authority"]
+        self.assertEqual([], authority["qualified_signers"])
+        self.assertIn("无合格验收记录", authority["headline"])
+        self.assertIn("no qualified controlled-buyer acceptance record",
+                      "\n".join(report["limitations"]))
+        lines = close_report._report_markdown(report).splitlines()
+        self.assertIn("实际验收方：未识别", lines[2])
 
 
 class AmountInvariantTests(CloseReportTestBase):

@@ -656,12 +656,50 @@ def _paid_engine_payload() -> Dict[str, Any]:
         why=("the local chain only uses free local inputs: pasted text, a "
              "text file, or macOS Vision on a screenshot; Verovo never buys "
              "or subscribes on the user's behalf"),
-        user_action=("procure the OCR API and provide its output yourself via "
-                     "--ocr-json, or use the free paths: --text/--paste or "
-                     "--image with the local Vision runner"),
+        user_action=("use --engine text --text FILE (or --paste), or --engine "
+                     "vision --image FILE; if you already bought an OCR API, "
+                     "pass its output with --engine vision --ocr-json FILE"),
         alternatives=["paste the bill text", "screenshot + local Vision OCR",
                       "precompute the OCR result and pass --ocr-json",
                       "narrow the period and type the key fields manually"])
+
+
+def engine_catalog() -> Dict[str, Any]:
+    """Which ``--engine`` values run today and which need their own purchase."""
+    return {
+        "engines": [
+            {
+                "engine": "text",
+                "state": "available",
+                "requires_procurement": False,
+                "inputs": "--text FILE or --paste",
+                "note": "free local text path; no network, no purchase",
+            },
+            {
+                "engine": "vision",
+                "state": "available_on_macos",
+                "requires_procurement": False,
+                "inputs": "--image FILE (+ --ocr-json to inject results)",
+                "note": ("local macOS Vision runner; on other platforms pass "
+                         "precomputed lines with --ocr-json"),
+            },
+            {
+                "engine": "paid-cloud-ocr",
+                "state": "requires_procurement",
+                "requires_procurement": True,
+                "inputs": "not wired; Verovo never buys or subscribes",
+                "note": ("self-procure the OCR API and pass its output with "
+                         "--ocr-json; keep the purchase record for the audit trail"),
+                "alternatives": [
+                    "--engine text --text FILE",
+                    "--engine text --paste",
+                    "--engine vision --image shot.png",
+                    "--engine vision --ocr-json precomputed.json",
+                ],
+            },
+        ],
+        "transaction_executed": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1355,9 +1393,10 @@ def projection(candidate: Dict[str, Any]) -> Dict[str, Any]:
         terminal = {
             "terminal_state": "BLOCKED_USER_INPUT",
             "reason": "bad_ocr",
-            "user_action": ("retake the screenshot at a higher resolution or "
-                            "paste the bill text; the garbled draft is preserved "
-                            "and no field was guessed"),
+            "user_action": ("retake the screenshot at >=1920px wide, upright, "
+                            "with the invoice number, amount, currency and date "
+                            "visible; or paste the bill text; the garbled draft "
+                            "is preserved and no field was guessed"),
             "alternatives": ["paste the bill text", "precompute --ocr-json",
                              "type the key fields during review"],
         }

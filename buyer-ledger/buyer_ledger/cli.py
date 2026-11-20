@@ -473,6 +473,10 @@ def cmd_bc_add(args):
         sys.exit(2)
 
 
+def cmd_bc_engines(args):
+    print(json.dumps(bc.engine_catalog(), ensure_ascii=False, indent=2))
+
+
 def cmd_bc_list(args):
     rows = bc.list_candidates(args.store)
     if not rows:
@@ -1171,6 +1175,12 @@ def cmd_close_signoff(args):
           % len(record["unresolved_items"]))
     print("payment authorization: %s" % record["payment_authorization"])
     print("scope hash: %s" % record["scope_hash"])
+    target = close_revision.resolve_case_dir(Path(args.case),
+                                             record["revision_id"])
+    print("delivered report: %s"
+          % (target / "report" / "report-delivered.md"))
+    print("delivered payload: %s"
+          % (target / "report" / "report-delivered.json"))
 
 
 def build_parser():
@@ -1314,6 +1324,10 @@ def build_parser():
     sp = bc_sub.add_parser("list", help="列出候选与待复核队列大小")
     sp.add_argument("store", nargs="?", default="bill-candidates")
     sp.set_defaults(func=cmd_bc_list)
+
+    sp = bc_sub.add_parser(
+        "engines", help="列出 OCR 引擎：哪些可用、哪些需要自行采购及替代路径")
+    sp.set_defaults(func=cmd_bc_engines)
 
     sp = bc_sub.add_parser("show", help="候选详情：字段证据、复核状态、终态")
     sp.add_argument("store", nargs="?", default="bill-candidates")
