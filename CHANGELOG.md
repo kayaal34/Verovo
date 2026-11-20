@@ -1,3 +1,15 @@
+## v0.15.1 - 2026-11-20
+
+Release-notes repair for v0.15.0. No product behaviour changes.
+
+### Fixed
+
+- **v0.15.0 shipped without release notes**: the tag passed `release-guard`,
+  but `github-release` failed because `docs/RELEASE-v0.15.0.md` was not in the
+  tagged commit, and the workflow refuses the old silent fallback. No GitHub
+  Release was created for v0.15.0; the tag is left in place. v0.15.1 carries
+  `docs/RELEASE-v0.15.1.md` and the same product changes.
+
 ## v0.15.0 - 2026-11-20
 
 V-21 / V-02 from the 2026-11-19/20 full-scenario end-to-end test.
