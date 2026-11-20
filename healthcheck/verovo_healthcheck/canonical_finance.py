@@ -440,13 +440,128 @@ def _charge_conclusions(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     return conclusions
 
 
-def _delivery_conclusions(outcomes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _controlled_buyer(manifest: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Return the controlled buyer organization declared by the bundle manifest.
+
+    Acceptance identity may only come from this controlled field.  An
+    ``accepted_by`` string inside an outcome row is a self-report and never a
+    credential on its own.
+    """
+    raw = manifest.get("buyer")
+    if not isinstance(raw, dict):
+        return None
+    org_id = _text(raw.get("org_id"))
+    signers = raw.get("acceptance_signers")
+    if not org_id or not isinstance(signers, list):
+        return None
+    signers = [_text(item) for item in signers if _text(item)]
+    if not signers:
+        return None
+    return {
+        "org_id": org_id,
+        "org_name": _text(raw.get("name")) or org_id,
+        "acceptance_signers": signers,
+    }
+
+
+def _acceptance_authority(outcomes: List[Dict[str, Any]],
+                          manifest: Dict[str, Any]) -> Dict[str, Any]:
+    """Decide which acceptance rows are authorized by the controlled buyer."""
+    buyer = _controlled_buyer(manifest)
+    if buyer is None:
+        authority = {
+            "configured": False,
+            "org_id": "",
+            "org_name": "",
+            "signers": [],
+            "source": None,
+            "observed": [],
+        }
+    else:
+        authority = {
+            "configured": True,
+            "org_id": buyer["org_id"],
+            "org_name": buyer["org_name"],
+            "signers": list(buyer["acceptance_signers"]),
+            "source": "manifest.buyer",
+            "observed": [],
+        }
+    signer_keys = {item.lower() for item in authority["signers"]}
+    org_keys = ({authority["org_id"].lower(), authority["org_name"].lower()}
+                if buyer else set())
+    vendor_name = _text(manifest.get("vendor"))
+    vendor_key = vendor_name.lower()
+    for index, outcome in enumerate(outcomes):
+        signer = _text(outcome.get("accepted_by"))
+        if not signer:
+            continue
+        outcome_id = _text(outcome.get("outcome_id")) or "outcome:%d" % (index + 1)
+        signer_key = signer.lower()
+        declared_org = _text(outcome.get("accepted_by_org"))
+        vendor_self = False
+        if buyer is None:
+            reason = ("No usable controlled buyer organization (org_id and "
+                      "acceptance_signers) is declared in the manifest; a "
+                      "self-reported accepted_by string cannot be qualified.")
+        elif vendor_key and (signer_key == vendor_key or vendor_key in signer_key):
+            vendor_self = True
+            reason = ("Acceptance signer is the vendor (%s); vendor self-acceptance "
+                      "cannot support Buyer Verified." % vendor_name)
+        elif signer_key not in signer_keys:
+            reason = ("Acceptance signer %r is not an authorized signer of the "
+                      "controlled buyer organization %s." % (signer, buyer["org_id"]))
+        elif declared_org and declared_org.lower() not in org_keys:
+            reason = ("Acceptance row claims organization %r, which is not the "
+                      "controlled buyer organization %s."
+                      % (declared_org, buyer["org_id"]))
+        else:
+            reason = ""
+        authority["observed"].append({
+            "outcome_id": outcome_id,
+            "task_id": _text(outcome.get("task_id")),
+            "accepted_by": signer,
+            "accepted_by_org": declared_org,
+            "status": _text(outcome.get("status")).lower(),
+            "qualified": not reason,
+            "vendor_self": vendor_self,
+            "reason": reason,
+        })
+    return authority
+
+
+def _unqualified_acceptance(
+        authority: Dict[str, Any]
+) -> Tuple[Dict[str, List[Dict[str, Any]]], List[str]]:
+    """Return (task_id -> unqualified observed rows, all unqualified outcome ids)."""
+    by_task: Dict[str, List[Dict[str, Any]]] = {}
+    all_ids: List[str] = []
+    for row in authority.get("observed", []):
+        if row.get("qualified"):
+            continue
+        all_ids.append(row["outcome_id"])
+        task_id = row.get("task_id")
+        if task_id:
+            by_task.setdefault(task_id, []).append(row)
+    return by_task, all_ids
+
+
+def _delivery_conclusions(outcomes: List[Dict[str, Any]],
+                          authority: Dict[str, Any]) -> List[Dict[str, Any]]:
+    observed = {row["outcome_id"]: row for row in authority.get("observed", [])}
     rows = []
     for index, outcome in enumerate(outcomes):
         outcome_id = _text(outcome.get("outcome_id")) or "outcome:%d" % (index + 1)
+        observed_row = observed.get(outcome_id)
+        qualified = bool(observed_row and observed_row.get("qualified"))
         buyer = _buyer_evidence(outcome) and outcome.get("verified") is True
         status_text = _text(outcome.get("status")).lower()
-        if buyer and status_text == "success" and _text(outcome.get("accepted_by")) \
+        if not qualified:
+            status = "UNPROVABLE"
+            prefix = ((observed_row.get("reason") + " ") if observed_row else "")
+            reason = prefix + (
+                "Delivery acceptance needs a controlled buyer organization with "
+                "authorized signers, not a self-reported string.")
+        elif buyer and status_text == "success" and _text(outcome.get("accepted_by")) \
                 and _text(outcome.get("accepted_at")):
             status = "PASS"
             reason = "Buyer-owned acceptance evidence names the affected-party reviewer and time."
@@ -541,7 +656,34 @@ def run(bundle: Path) -> Dict[str, Any]:
     for row in report["reconciliation_rows"]:
         for conclusion in _charge_conclusions(row):
             conclusions[conclusion["name"]].append(conclusion)
-    conclusions["Delivery Accepted"] = _delivery_conclusions(case["outcomes"])
+    acceptance_authority = _acceptance_authority(case["outcomes"], manifest)
+    conclusions["Delivery Accepted"] = _delivery_conclusions(
+        case["outcomes"], acceptance_authority)
+    unqualified_tasks, unqualified_ids = _unqualified_acceptance(acceptance_authority)
+    if unqualified_ids:
+        tasks_by_charge = {_text(row.get("charge_id")): _text(row.get("task_id"))
+                           for row in report["reconciliation_rows"]}
+        for conclusion in conclusions["Buyer Verified"]:
+            if conclusion["status"] != "PASS":
+                continue
+            task_id = tasks_by_charge.get(_text(conclusion.get("id")), "")
+            if task_id not in unqualified_tasks:
+                continue
+            rows = unqualified_tasks[task_id]
+            outcome_ids = ", ".join(row["outcome_id"] for row in rows)
+            conclusion["status"] = "UNPROVABLE"
+            conclusion["recalculation_status"] = "unknown"
+            if any(row.get("vendor_self") for row in rows):
+                conclusion["reason"] = (
+                    "Acceptance signer is the vendor (%s) on outcome(s) %s; vendor "
+                    "self-acceptance cannot support Buyer Verified. An independent buyer "
+                    "acceptance record is required."
+                    % (_text(manifest["vendor"]), outcome_ids))
+            else:
+                conclusion["reason"] = (
+                    "Acceptance on outcome(s) %s is not authorized by the controlled "
+                    "buyer organization; self-reported acceptance cannot support "
+                    "Buyer Verified." % outcome_ids)
     statuses = _completion_statuses(
         manifest, case, ingested["case_written"], economics, conclusions)
     # ``status`` is a compatibility summary of completion, never an evidence
@@ -565,6 +707,7 @@ def run(bundle: Path) -> Dict[str, Any]:
         "synthetic": manifest.get("synthetic") is True,
         "scope": case["scope"], "case": case, "intake_report": report,
         "economics": economics, "evidence_conclusions": conclusions,
+        "acceptance_authority": acceptance_authority,
         "rule_map": {
             "intake": sorted(intake_rules), "pricing": sorted(pricing_rules),
             "allocation": sorted(allocation_rules),
@@ -574,7 +717,9 @@ def run(bundle: Path) -> Dict[str, Any]:
             "OCR/invoice2data remains unreviewed/unbooked. Rule repricing is not "
             "cross-source reconciliation; reconciliation and allocation are orthogonal. "
             "Buyer provenance checks are procedural metadata checks, not cryptographic "
-            "identity proof; vendor agreement is not buyer verification. ROI is separate "
-            "from Cost per Verified Success."
+            "identity proof; vendor agreement is not buyer verification. Acceptance "
+            "identity comes only from the controlled buyer organization and its "
+            "authorized signers in the manifest; an accepted_by string by itself never "
+            "qualifies. ROI is separate from Cost per Verified Success."
         ),
     }

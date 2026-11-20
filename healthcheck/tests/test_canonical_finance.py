@@ -409,6 +409,64 @@ class CanonicalFinanceTests(unittest.TestCase):
         self.assertIsNone(result["economics"]["totals"]["fully_loaded_cost"])
         self.assertEqual("86.00", result["economics"]["totals"]["attributed_cost_subtotal"])
 
+    def test_vendor_self_acceptance_cannot_support_buyer_verified(self):
+        self.outcome("buyer-accept-t1", accepted_by="synthetic-vendor")
+        result = canonical_finance.run(self.bundle)
+        delivery = self.conclusion(result, "Delivery Accepted", "buyer-accept-t1")
+        self.assertEqual("UNPROVABLE", delivery["status"])
+        self.assertIn("self-acceptance cannot support Buyer Verified", delivery["reason"])
+        buyer = self.conclusion(result, "Buyer Verified", "ch-buyer")
+        self.assertEqual("UNPROVABLE", buyer["status"])
+        self.assertEqual("unknown", buyer["recalculation_status"])
+        self.assertIn("self-acceptance cannot support Buyer Verified", buyer["reason"])
+        self.assertEqual("partial", result["delivery_status"])
+        self.assertTrue(result["acceptance_authority"]["configured"])
+
+    def test_unknown_signer_organization_cannot_support_buyer_verified(self):
+        self.outcome("buyer-accept-t1", accepted_by="Mallory")
+        result = canonical_finance.run(self.bundle)
+        delivery = self.conclusion(result, "Delivery Accepted", "buyer-accept-t1")
+        self.assertEqual("UNPROVABLE", delivery["status"])
+        self.assertIn("not an authorized signer", delivery["reason"])
+        buyer = self.conclusion(result, "Buyer Verified", "ch-buyer")
+        self.assertEqual("UNPROVABLE", buyer["status"])
+        self.assertIn("not authorized by the controlled buyer organization", buyer["reason"])
+        self.assertEqual("Buyer Owner", result["acceptance_authority"]["signers"][0])
+
+    def test_forged_buyer_string_is_not_a_credential(self):
+        self.outcome("buyer-accept-t1", accepted_by="buyer")
+        result = canonical_finance.run(self.bundle)
+        self.assertEqual(
+            "UNPROVABLE",
+            self.conclusion(result, "Delivery Accepted", "buyer-accept-t1")["status"])
+        self.assertIn(
+            "self-reported",
+            self.conclusion(result, "Delivery Accepted", "buyer-accept-t1")["reason"])
+
+    def test_missing_controlled_buyer_makes_acceptance_unprovable(self):
+        manifest = self.json("manifest.json")
+        del manifest["buyer"]
+        self.write_json("manifest.json", manifest)
+        result = canonical_finance.run(self.bundle)
+        self.assertFalse(result["acceptance_authority"]["configured"])
+        self.assertEqual([], result["acceptance_authority"]["signers"])
+        self.assertEqual(
+            "UNPROVABLE",
+            self.conclusion(result, "Delivery Accepted", "buyer-accept-t1")["status"])
+        self.assertEqual(
+            "UNPROVABLE",
+            self.conclusion(result, "Delivery Accepted", "buyer-reject-t2")["status"])
+        self.assertEqual("partial", result["delivery_status"])
+        self.assertEqual("UNPROVABLE", self.conclusion(result, "Buyer Verified", "ch-buyer")["status"])
+
+    def test_acceptance_row_claiming_another_organization_is_unprovable(self):
+        self.outcome("buyer-accept-t1", accepted_by_org="Rogue Corp")
+        result = canonical_finance.run(self.bundle)
+        delivery = self.conclusion(result, "Delivery Accepted", "buyer-accept-t1")
+        self.assertEqual("UNPROVABLE", delivery["status"])
+        self.assertIn("not the controlled buyer organization", delivery["reason"])
+        self.assertEqual("UNPROVABLE", self.conclusion(result, "Buyer Verified", "ch-buyer")["status"])
+
 
 if __name__ == "__main__":
     unittest.main()

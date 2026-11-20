@@ -1141,6 +1141,18 @@ def generate_canonical(case_dir: Path,
         "rule_map": "rule-map.json",
         "sources": {},
     }
+    if _text(job.get("buyer")):
+        declared_signers = job.get("buyer_signers")
+        if isinstance(declared_signers, str):
+            declared_signers = [declared_signers]
+        if not isinstance(declared_signers, (list, tuple)) or not declared_signers:
+            declared_signers = [job["buyer"]]
+        signers = [str(item) for item in declared_signers if _text(item)]
+        manifest["buyer"] = {
+            "org_id": _text(job["buyer"]),
+            "name": _text(job.get("buyer_name")) or _text(job["buyer"]),
+            "acceptance_signers": signers,
+        }
     rule_version_by_id = {
         _text(rule.get("rule_id")): _text(rule.get("version"))
         for rule in (rule_map or {}).get("rules", [])}

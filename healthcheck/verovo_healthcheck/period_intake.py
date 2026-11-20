@@ -510,7 +510,7 @@ def intake(bundle: Path) -> Dict[str, Any]:
                 "source_ref": _text(row.get("source_ref")) or outcome_id,
             }
             item.update(_provenance(entry, row))
-            for field in ("accepted_by", "accepted_at"):
+            for field in ("accepted_by", "accepted_by_org", "accepted_at"):
                 if _text(row.get(field)):
                     item[field] = _text(row.get(field))
             item["value_verified"] = _truth(row.get("value_verified")) is True

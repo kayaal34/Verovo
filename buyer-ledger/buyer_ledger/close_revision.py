@@ -395,6 +395,24 @@ def _write_descriptor(case_dir: Path, step: str, path: Path, payload: Any,
     }
 
 
+def _text_descriptor(case_dir: Path, step: str, path: Path,
+                     text: str) -> Dict[str, Any]:
+    """A journal write whose bytes are the raw UTF-8 text, not a JSON encoding.
+
+    Only used for newly created derived artifacts (a signed report copy), so no
+    ``before`` payload is needed: rollback unlinks the file.
+    """
+    raw = _text(text).encode("utf-8")
+    return {
+        "step": step,
+        "path": _case_rel(case_dir, path),
+        "sha256": _sha_bytes(raw),
+        "text": _text(text),
+        "before": None,
+        "before_sha256": None,
+    }
+
+
 def _tree_hashes(root: Path, prefix: str = "") -> List[Dict[str, Any]]:
     root = Path(root)
     prefix = prefix.rstrip("/")
@@ -611,7 +629,10 @@ def _apply_journal(case_dir: Path, journal: Dict[str, Any],
                 raise JournalConflict(
                     "恢复冲突：%s 与 journal 期望的 hash 不一致"
                     % write.get("path"))
-        _write_bytes_durable(path, _json_bytes(write.get("payload")))
+        if "text" in write:
+            _write_bytes_durable(path, _text(write.get("text")).encode("utf-8"))
+        else:
+            _write_bytes_durable(path, _json_bytes(write.get("payload")))
         stage = _CHECKPOINT_STAGES.get((kind, _text(write.get("step"))))
         if stage:
             _checkpoint(stage, {"revision_id": revision_id, "kind": kind,
@@ -1704,6 +1725,14 @@ def _verify_signoff_freshness(case_dir: Path, target: Path,
                 stale("the signed %s no longer matches the %s on disk; a later "
                       "source must create a new revision — run close revise"
                       % (label, label))
+        stored_attestation = existing.get("record_fingerprint")
+        if stored_attestation:
+            body = {key: value for key, value in existing.items()
+                    if key != "record_fingerprint"}
+            if stored_attestation != _fingerprint(body):
+                stale("signoff.json no longer matches its own record "
+                      "fingerprint; reviewer, scope or timing declarations were "
+                      "edited after signing — do not overwrite it")
         _verify_signed_triple(case_dir, revision, existing)
     return {
         "report": report,
@@ -1812,6 +1841,40 @@ def _signoff_locked(case_dir: Path, *, reviewer: str, approved_scope: str = "",
                      "authorization, does not close unresolved items, and does not "
                      "transfer to a later revision."),
     }
+    record["record_fingerprint"] = _fingerprint(record)
+    delivered = deepcopy(report)
+    delivered["signoff"] = {
+        "schema": SIGNOFF_SCHEMA,
+        "revision_id": record["revision_id"],
+        "state": state,
+        "reviewer": reviewer,
+        "decided_at": decided_at,
+        "attestation": record["attestation"],
+        "approved_scope": record["approved_scope"],
+        "reservations": record["reservations"],
+        "note": record["note"],
+        "scope_hash": scope_hash,
+        "report_fingerprint": record["report_fingerprint"],
+        "payment_authorization": False,
+        "boundary": record["boundary"],
+    }
+    delivered["delivery"] = {
+        "kind": "signed_report_copy",
+        "source": "report/report.json",
+        "source_report_fingerprint": record["report_fingerprint"],
+        "signed": True,
+        "source_snapshot_preserved": True,
+    }
+    delivered_md = close_report._report_markdown(delivered).rstrip("\n")
+    delivered_md += "\n\n## 签核\n\n"
+    delivered_md += "- 状态：%s\n" % state
+    delivered_md += "- 签核人：%s\n" % reviewer
+    delivered_md += "- 签核时间：%s\n" % decided_at
+    delivered_md += "- 核验范围指纹：%s\n" % scope_hash
+    delivered_md += "- 付款授权：False（签核是声明，不等于付款授权）\n"
+    delivered_md += ("- 说明：%s\n" % record["boundary"])
+    if record["reservations"]:
+        delivered_md += "- 保留意见：%s\n" % "；".join(record["reservations"])
     writes = [_write_descriptor(case_dir, "signoff", target / "signoff.json",
                                 record)]
     if revision is not None:
@@ -1834,6 +1897,12 @@ def _signoff_locked(case_dir: Path, *, reviewer: str, approved_scope: str = "",
         writes.append(_write_descriptor(case_dir, "index",
                                         _index_path(case_dir), index_after,
                                         before=index))
+    writes.append(_text_descriptor(case_dir, "report-delivered-md",
+                                   target / "report" / "report-delivered.md",
+                                   delivered_md))
+    writes.append(_write_descriptor(case_dir, "report-delivered-json",
+                                    target / "report" / "report-delivered.json",
+                                    delivered))
     journal = {
         "schema": JOURNAL_SCHEMA,
         "kind": "signoff",

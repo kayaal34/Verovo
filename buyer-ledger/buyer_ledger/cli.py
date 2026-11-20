@@ -473,6 +473,10 @@ def cmd_bc_add(args):
         sys.exit(2)
 
 
+def cmd_bc_engines(args):
+    print(json.dumps(bc.engine_catalog(), ensure_ascii=False, indent=2))
+
+
 def cmd_bc_list(args):
     rows = bc.list_candidates(args.store)
     if not rows:
@@ -699,6 +703,290 @@ def cmd_close_status(args):
         print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def cmd_close_bundle(args):
+    from . import close_bundle
+    payload = close_bundle.build_bundle(args.case, args.revision)
+    html_path = ""
+    if args.html:
+        path = Path(args.html)
+        if path.exists():
+            print(json.dumps({"status": "refused",
+                              "reason_code": "INPUT_REQUIRED",
+                              "detail": "OUTPUT_EXISTS", "path": str(path)},
+                             ensure_ascii=False))
+            sys.exit(2)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(close_bundle.render_html(payload), encoding="utf-8")
+        html_path = str(path)
+    if args.json:
+        output = dict(payload)
+        output["html_path"] = html_path
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+    else:
+        print(close_bundle.render_summary(payload))
+        if html_path:
+            print("html: %s" % html_path)
+    if (payload.get("faults")
+            or payload.get("state") in ("empty", "stale", "partial",
+                                        "failed")):
+        sys.exit(1)
+
+
+def cmd_usage_replay(args):
+    from . import usage_replay
+    events = []
+    inputs = [Path(item) for item in args.input]
+    for path in inputs:
+        events.extend(usage_replay.load_events(path))
+    rule_map = usage_replay.load_rule_map(Path(args.rule_map))
+    previous = None
+    if args.previous:
+        previous = json.loads(Path(args.previous).read_text(encoding="utf-8"))
+    payload = usage_replay.replay(
+        events, period=args.period, rule_map=rule_map,
+        closed_at=args.closed_at, previous_revision=args.previous_revision,
+        source_files=inputs)
+    diff = usage_replay.diff_replays(payload, previous) if previous else None
+    paths = {}
+    if args.out:
+        paths = usage_replay.write_replay(payload, Path(args.out), diff=diff)
+    if args.json:
+        output = dict(payload)
+        output["paths"] = paths
+        if diff is not None:
+            output["diff"] = diff
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return
+    print(_usage_summary(payload, paths, diff))
+
+
+def _usage_summary(payload, paths, diff):
+    counts = payload.get("counts") or {}
+    rule_map = payload.get("rule_map") or {}
+    revision = payload.get("revision") or {}
+    lines = ["# 用量重放 %s" % (payload.get("period") or {}).get("from", "")[:7],
+             "",
+             "- 事件：收到 %d / 计入 %d / 重复 %d / 冲突 %d / 排除 %d / 迟到 %d"
+             % (counts.get("received", 0), counts.get("included", 0),
+                counts.get("duplicates", 0), counts.get("conflicts", 0),
+                counts.get("excluded", 0), counts.get("late", 0)),
+             "- RuleMap：%s（%s）"
+             % (rule_map.get("hash"), "已批准" if rule_map.get("approved")
+                else "未批准，仅草稿"),
+             "- revision：%s effect=%s parent=%s"
+             % (revision.get("revision_id"), revision.get("effect"),
+                revision.get("parent_revision_id") or "none"),
+             "- Delivery：%s（重放只覆盖计费口径）"
+             % payload.get("delivery_state"),
+             ""]
+    if payload.get("aggregation_state") != "OK":
+        lines.append("注意：%s" % payload.get("aggregation_state"))
+        lines.append("")
+    metrics = payload.get("metrics") or []
+    if metrics:
+        lines.append("## 指标")
+        for metric in metrics:
+            amount = metric.get("amount")
+            amount_text = ("%s %s" % (amount, metric.get("currency") or "")
+                           if amount is not None else
+                           "金额 null（%s）" % (metric.get("amount_reason") or "UNKNOWN"))
+            lines.append("- `%s` %s：%s %s，%s"
+                         % (metric.get("metric_code"), metric.get("aggregate"),
+                            metric.get("quantity"), metric.get("unit"),
+                            amount_text))
+        lines.append("")
+    if payload.get("duplicates"):
+        lines.append("## 重复（只计一次）")
+        lines.extend("- `%s` ← %s" % (item.get("dedupe_key"), item.get("source_ref"))
+                     for item in payload["duplicates"])
+        lines.append("")
+    if payload.get("conflicts"):
+        lines.append("## 冲突（不合并，人工复核）")
+        lines.extend("- `%s` %s ↔ %s"
+                     % (item.get("dedupe_key"), item.get("prior_properties_hash"),
+                        item.get("properties_hash"))
+                     for item in payload["conflicts"])
+        lines.append("")
+    if diff is not None:
+        lines.append("## 与上一版差异")
+        lines.append("- 新增 %d / 移除 %d / 变化 %d"
+                     % (len(diff.get("added") or []),
+                        len(diff.get("removed") or []),
+                        len(diff.get("changed") or [])))
+        lines.append(diff.get("note", ""))
+        lines.append("")
+    for label, path in sorted(paths.items()):
+        lines.append("%s: %s" % (label, path))
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def cmd_alloc_check(args):
+    from . import allocation_policy as alloc
+    policy = alloc.load_policy(Path(args.policy))
+    report = alloc.check_policy(policy)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return
+    lines = ["# 分摊策略检查 %s v%s"
+             % (policy.get("policy_id"), policy.get("policy_version")),
+             "",
+             "- 状态：%s" % report.get("state"),
+             "- 指纹：%s" % report.get("policy_hash"),
+             ]
+    diagnostics = report.get("diagnostics") or []
+    if diagnostics:
+        lines.append("- 诊断：")
+        lines.extend("  - %s %s" % (item["code"], item["detail"])
+                     for item in diagnostics)
+    else:
+        lines.append("- 诊断：无（可复核）")
+    print("\n".join(lines))
+
+
+def cmd_alloc_approve(args):
+    from . import allocation_policy as alloc
+    policy = alloc.load_policy(Path(args.policy))
+    approved = alloc.approve_policy(policy, approved_by=args.approved_by,
+                                    approved_at=args.approved_at,
+                                    approval_ref=args.approval_ref)
+    out = Path(args.out) if args.out else Path(args.policy).with_suffix(
+        ".approved.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(approved, ensure_ascii=False, indent=2) + "\n",
+                   encoding="utf-8")
+    if args.json:
+        print(json.dumps({"path": str(out), "policy": approved},
+                         ensure_ascii=False, indent=2))
+        return
+    print("已批准 %s v%s（%s）→ %s"
+          % (approved.get("policy_id"), approved.get("policy_version"),
+             approved.get("approval_ref"), out))
+
+
+def cmd_alloc_allocate(args):
+    from . import allocation_policy as alloc
+    policy = alloc.load_policy(Path(args.policy))
+    charges = alloc.load_json(Path(args.charges))
+    driver = alloc.load_json(Path(args.driver))
+    economics = alloc.load_json(Path(args.economics)) if args.economics else None
+    result = alloc.allocate(policy, charges=charges, driver=driver,
+                            economics=economics)
+    paths = alloc.write_result(result, Path(args.out))
+    if args.json:
+        output = dict(result)
+        output["paths"] = paths
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return
+    print(alloc.render_summary(result))
+    for label, path in sorted(paths.items()):
+        print("%s: %s" % (label, path))
+
+
+def cmd_alloc_diff(args):
+    from . import allocation_policy as alloc
+    before = alloc.load_policy(Path(args.before))
+    after = alloc.load_policy(Path(args.after))
+    diff = alloc.diff_policies(before, after)
+    if args.json:
+        print(json.dumps(diff, ensure_ascii=False, indent=2))
+        return
+    lines = ["# 分摊策略差异 %s" % (diff["policy_before"].get("policy_id")),
+             "",
+             "- v%s %s → v%s %s（hash %s）"
+             % (diff["policy_before"].get("policy_version"),
+                diff["policy_before"].get("policy_hash"),
+                diff["policy_after"].get("policy_version"),
+                diff["policy_after"].get("policy_hash"),
+                "变化" if diff["hash_changed"] else "未变"),
+             "- %s" % diff["explanation"],
+             ""]
+    if diff["changes"]:
+        lines.append("## 变更项")
+        for item in diff["changes"]:
+            lines.append("- `%s`：%s → %s（%s）"
+                         % (item["field"], item["before"], item["after"],
+                            "影响结果" if item["result_affecting"] else "元数据"))
+        lines.append("")
+    lines.append(diff["note"])
+    print("\n".join(lines).rstrip())
+
+
+def cmd_acceptance_dataset(args):
+    from . import acceptance_dataset as acc
+    raw = acc.load_json(Path(args.samples))
+    if isinstance(raw, dict) and "samples" in raw:
+        raw = raw["samples"]
+    if not isinstance(raw, list):
+        raise ValueError("samples JSON must be a list or {\"samples\": [...]}")
+    criteria = acc.load_json(Path(args.criteria)) if args.criteria else None
+    previous = acc.load_json(Path(args.previous)) if args.previous else None
+    window = None
+    if args.window_start or args.window_end:
+        if not (args.window_start and args.window_end):
+            raise ValueError("--window-start and --window-end go together")
+        window = {"start": args.window_start, "end": args.window_end}
+    dataset = acc.build_dataset(
+        raw, dataset_id=args.dataset_id, dataset_version=args.dataset_version,
+        window=window, criteria=criteria, previous=previous,
+        reference_root=Path(args.reference_root) if args.reference_root else None)
+    paths = acc.write_dataset(dataset, Path(args.out))
+    if args.json:
+        output = dict(dataset)
+        output["paths"] = paths
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return
+    print("# 评测数据集 %s v%s" % (dataset["dataset_id"],
+                                  dataset["dataset_version"]))
+    print("- 指纹：%s" % dataset["dataset_hash"])
+    print("- 样本：%d；缺标准：%d；引用失效：%d"
+          % (dataset["counts"]["samples"],
+             dataset["counts"]["criteria_missing"],
+             dataset["counts"]["broken_references"]))
+    print("- 标准：%s"
+          % ("未登记" if not dataset["criteria"] else
+             "%s v%s（%d 项检查）"
+             % (dataset["criteria"]["criteria_id"],
+                dataset["criteria"]["criteria_version"],
+                len(dataset["criteria"]["checks"]))))
+    for label, path in sorted(paths.items()):
+        print("%s: %s" % (label, path))
+
+
+def cmd_acceptance_evaluate(args):
+    from . import acceptance_dataset as acc
+    dataset = acc.load_dataset(Path(args.dataset))
+    scores = acc.load_json(Path(args.scores))
+    if isinstance(scores, dict) and "scores" in scores:
+        scores = scores["scores"]
+    labels = acc.load_json(Path(args.labels)) if args.labels else []
+    adjudications = (acc.load_json(Path(args.adjudications))
+                     if args.adjudications else [])
+    previous = acc.load_json(Path(args.previous)) if args.previous else None
+    run = acc.evaluate(dataset, service_version=args.service_version,
+                       evaluator_version=args.evaluator_version,
+                       scores=scores, human_labels=labels,
+                       adjudications=adjudications, previous=previous)
+    paths = acc.write_run(run, Path(args.out))
+    if args.json:
+        output = dict(run)
+        output["paths"] = paths
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        return
+    print(acc.render_calibration(run))
+    for label, path in sorted(paths.items()):
+        print("%s: %s" % (label, path))
+
+
+def cmd_acceptance_calibrate(args):
+    from . import acceptance_dataset as acc
+    run = acc.load_json(Path(args.run))
+    calibration = acc.calibrate(run)
+    if args.json:
+        print(json.dumps(calibration, ensure_ascii=False, indent=2))
+        return
+    print(acc.render_calibration(run))
+
+
 def cmd_close_recover(args):
     from . import close_revision
     result = close_revision.recover(
@@ -816,6 +1104,35 @@ def cmd_close_review(args):
     print("payment authorization: %s" % review["payment_authorization"])
 
 
+def cmd_handoff_import_growovo(args):
+    from . import growovo_handoff
+    result = growovo_handoff.import_handoff(args.source, args.out)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print("边界：交接完整性已核验 ≠ 外部回执、业务结果或账单金额已由 Verovo 独立核验。")
+
+
+def cmd_close_action(args):
+    """Record/list explicit difference dispositions; never execute external writes."""
+    from . import close_actions, close_revision
+    close_revision.ensure_recovered(args.case, strict=not args.list)
+    target = close_revision.resolve_case_dir(args.case, args.revision)
+    if args.list:
+        print(json.dumps(close_actions.list_actions(target), ensure_ascii=False, indent=2))
+        return
+    record = close_actions.record_action(
+        target, open_item_ref=args.open_item, action=args.type,
+        owner=args.owner, by=args.by, source_ref=args.source_ref,
+        note=args.note, occurred_at=args.occurred_at)
+    print("difference action: %s (%s)" % (record["action_id"], record["action"]))
+    print("open item: %s" % record["open_item_ref"])
+    print("owner: %s | by: %s | occurred_at: %s" % (
+        record["owner"], record["by"], record["occurred_at"]))
+    print("source ref: %s (%s)" % (
+        record["source_ref"], record["receipt_verification"]))
+    print("idempotent: %s" % record.get("idempotent", False))
+    print("external action executed: False (local declaration only)")
+
+
 def cmd_close_revise(args):
     from . import close_revision
     _recover_before_write(args)
@@ -858,6 +1175,12 @@ def cmd_close_signoff(args):
           % len(record["unresolved_items"]))
     print("payment authorization: %s" % record["payment_authorization"])
     print("scope hash: %s" % record["scope_hash"])
+    target = close_revision.resolve_case_dir(Path(args.case),
+                                             record["revision_id"])
+    print("delivered report: %s"
+          % (target / "report" / "report-delivered.md"))
+    print("delivered payload: %s"
+          % (target / "report" / "report-delivered.json"))
 
 
 def build_parser():
@@ -1002,6 +1325,10 @@ def build_parser():
     sp.add_argument("store", nargs="?", default="bill-candidates")
     sp.set_defaults(func=cmd_bc_list)
 
+    sp = bc_sub.add_parser(
+        "engines", help="列出 OCR 引擎：哪些可用、哪些需要自行采购及替代路径")
+    sp.set_defaults(func=cmd_bc_engines)
+
     sp = bc_sub.add_parser("show", help="候选详情：字段证据、复核状态、终态")
     sp.add_argument("store", nargs="?", default="bill-candidates")
     sp.add_argument("id")
@@ -1030,6 +1357,14 @@ def build_parser():
     sp.add_argument("--usage", default="", help="包内 usage 导出文件名（独立复算来源）")
     sp.add_argument("--rule-map", default="", help="包内规则表文件名")
     sp.set_defaults(func=cmd_bc_book)
+
+    sp = sub.add_parser("handoff", help="跨产品证据交接（只导入，不自动入账）")
+    handoff_sub = sp.add_subparsers(dest="handoff_command", required=True)
+    sp = handoff_sub.add_parser(
+        "import-growovo", help="校验 growovo.verovo-handoff/1 并落为未入账证据包")
+    sp.add_argument("source", help="Growovo 导出的交接 JSON")
+    sp.add_argument("--out", required=True, help="空目录或新目录；拒绝覆盖已有证据")
+    sp.set_defaults(func=cmd_handoff_import_growovo)
 
     sp = sub.add_parser("close",
                         help="账期包导入、人工字段映射与 BuyerCloseCase（V-02）")
@@ -1096,6 +1431,20 @@ def build_parser():
     sp.add_argument("--next-review", default="", help="下次复核日期 YYYY-MM-DD")
     sp.set_defaults(func=cmd_close_review)
 
+    sp = close_sub.add_parser(
+        "action", help="登记差异问询/更正/争议/预留/解决凭据；不代发、不付款")
+    sp.add_argument("case")
+    sp.add_argument("--revision", default="", help="指定 revision；默认最新")
+    sp.add_argument("--list", action="store_true", help="只读列出处置记录与当前投影")
+    sp.add_argument("--open-item", default="", help="报告处理清单中的 D-N ID")
+    sp.add_argument("--type", choices=("inquiry", "correction", "dispute", "reserve", "resolved"))
+    sp.add_argument("--owner", default="", help="该处置的责任人/团队")
+    sp.add_argument("--by", default="", help="登记人（自报声明，非强身份）")
+    sp.add_argument("--source-ref", default="", help="工单、邮件、更正单、争议或预留凭据引用")
+    sp.add_argument("--note", default="", help="处置说明；resolved 必填解决依据")
+    sp.add_argument("--occurred-at", default="", help="实际处置时间 ISO 8601，必须含时区")
+    sp.set_defaults(func=cmd_close_action)
+
     sp = close_sub.add_parser("revise", help="从新来源生成独立 revision（V-04）")
     sp.add_argument("case")
     sp.add_argument("--bundle", default="", help="完整的新账期包目录")
@@ -1118,6 +1467,17 @@ def build_parser():
     sp.set_defaults(func=cmd_close_signoff)
 
     sp = close_sub.add_parser(
+        "bundle",
+        help="只读 Evidence Bundle：Charges / Delivery / Coverage 三栏（V-P0）")
+    sp.add_argument("case")
+    sp.add_argument("--revision", default="", help="指定 revision；默认最新")
+    sp.add_argument("--json", action="store_true",
+                    help="输出页面 JSON（含 html_path）")
+    sp.add_argument("--html", default="",
+                    help="另存自包含 HTML；拒绝覆盖已有文件")
+    sp.set_defaults(func=cmd_close_bundle)
+
+    sp = close_sub.add_parser(
         "recover", help="检查/完成/回滚中断的 revision 或 signoff 事务（V-06）")
     sp.add_argument("case")
     group = sp.add_mutually_exclusive_group()
@@ -1126,6 +1486,93 @@ def build_parser():
     group.add_argument("--rollback", action="store_true",
                        help="回滚到事务前的一致状态")
     sp.set_defaults(func=cmd_close_recover)
+
+    sp = sub.add_parser(
+        "usage", help="用量事件重放（V-NEXT-1）：重复、冲突、迟到与计费口径")
+    usage_sub = sp.add_subparsers(dest="usage_command", required=True)
+    sp = usage_sub.add_parser(
+        "replay", help="本地重放授权用量文件；不生成 invoice、不付款")
+    sp.add_argument("--input", action="append", required=True, metavar="FILE",
+                    help="事件文件 .jsonl/.json/.csv，可重复")
+    sp.add_argument("--period", required=True,
+                    help="账期 YYYY-MM；半开区间 [from,to)")
+    sp.add_argument("--rule-map", required=True,
+                    help="已批准 verovo.usage-rule-map/1 JSON")
+    sp.add_argument("--out", default="",
+                    help="输出目录；写 usage-replay.json、CSV 与差异说明")
+    sp.add_argument("--closed-at", default="",
+                    help="关账时间 ISO 8601（含时区）；之后导入算迟到")
+    sp.add_argument("--previous-revision", default="",
+                    help="上一版 revision_id（写入 parent）")
+    sp.add_argument("--previous", default="",
+                    help="上一版 usage-replay.json，用于差异对照")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_usage_replay)
+
+    sp = sub.add_parser(
+        "alloc", help="分摊策略与指纹（V-NEXT-2）：版本、批准、定投与残差")
+    alloc_sub = sp.add_subparsers(dest="alloc_command", required=True)
+    sp = alloc_sub.add_parser("check", help="校验策略与可复核性诊断")
+    sp.add_argument("--policy", required=True, help="verovo.allocation-policy/1 JSON")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_alloc_check)
+    sp = alloc_sub.add_parser("approve", help="具名批准策略，生成新文件")
+    sp.add_argument("--policy", required=True)
+    sp.add_argument("--approved-by", required=True)
+    sp.add_argument("--approved-at", required=True, help="带时区的 ISO 8601")
+    sp.add_argument("--approval-ref", required=True)
+    sp.add_argument("--out", default="", help="默认 <policy>.approved.json")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_alloc_approve)
+    sp = alloc_sub.add_parser("allocate", help="按策略分摊费用并写只读结果")
+    sp.add_argument("--policy", required=True, help="已批准策略 JSON")
+    sp.add_argument("--charges", required=True, help="费用清单 JSON")
+    sp.add_argument("--driver", required=True, help="驱动量 JSON")
+    sp.add_argument("--economics", default="", help="可选 benefit/cost JSON")
+    sp.add_argument("--out", required=True, help="输出目录")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_alloc_allocate)
+    sp = alloc_sub.add_parser("diff", help="两版策略逐项差异")
+    sp.add_argument("--before", required=True)
+    sp.add_argument("--after", required=True)
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_alloc_diff)
+
+    sp = sub.add_parser(
+        "acceptance",
+        help="买方标准回归集与人机评分校准（V-NEXT-3）：版本、分歧与校准")
+    acceptance_sub = sp.add_subparsers(dest="acceptance_command",
+                                       required=True)
+    sp = acceptance_sub.add_parser("dataset", help="构建不可变评测数据集")
+    sp.add_argument("--samples", required=True, help="样本 JSON 列表")
+    sp.add_argument("--id", dest="dataset_id", required=True)
+    sp.add_argument("--version", dest="dataset_version", required=True)
+    sp.add_argument("--criteria", default="", help="买方标准 JSON")
+    sp.add_argument("--previous", default="", help="上一版数据集，校验版本冲突")
+    sp.add_argument("--reference-root", default="",
+                    help="本地引用根目录；用于发现 BROKEN_REFERENCE")
+    sp.add_argument("--window-start", default="")
+    sp.add_argument("--window-end", default="")
+    sp.add_argument("--out", required=True, help="输出目录")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_acceptance_dataset)
+
+    sp = acceptance_sub.add_parser("evaluate", help="运行本地评分并保留人工标签")
+    sp.add_argument("--dataset", required=True)
+    sp.add_argument("--scores", required=True, help="自动评分 JSON 列表")
+    sp.add_argument("--service-version", required=True)
+    sp.add_argument("--evaluator-version", required=True)
+    sp.add_argument("--labels", default="", help="人工标签 JSON 列表")
+    sp.add_argument("--adjudications", default="", help="裁决 JSON 列表")
+    sp.add_argument("--previous", default="", help="上一轮 run，校验评分器版本冲突")
+    sp.add_argument("--out", required=True, help="输出目录")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_acceptance_evaluate)
+
+    sp = acceptance_sub.add_parser("calibrate", help="重放并打印校准摘要")
+    sp.add_argument("--run", required=True, help="evaluation-run.json")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_acceptance_calibrate)
     return p
 
 

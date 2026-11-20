@@ -227,6 +227,14 @@ def _verify_job_against_manifest(job: Dict[str, Any],
                 "period-job %s (%r) no longer matches canonical (%r); re-ingest "
                 "and re-confirm before reporting"
                 % (label, job_value, manifest_value))
+    buyer = manifest.get("buyer")
+    manifest_buyer = _text(buyer.get("org_id")) if isinstance(buyer, dict) else ""
+    if manifest_buyer and _text(job.get("buyer")) != manifest_buyer:
+        raise CloseError(
+            "STALE_SOURCE",
+            "period-job buyer (%r) no longer matches the controlled canonical "
+            "buyer organization (%r); re-ingest and re-confirm before reporting"
+            % (job.get("buyer"), manifest_buyer))
 
 
 def _load_canonical_finance():
@@ -1190,6 +1198,9 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
     }
 
     open_items = _open_items(lines, findings, outcome, manifest, draft)
+    from . import close_actions
+    open_items, difference_actions = close_actions.project_open_items(
+        case_dir, open_items)
     review_projection = _review_projection(review, open_items)
     economics = outcome.get("economics")
     if economics is None:
@@ -1221,6 +1232,30 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
             "findings": economics.get("findings") or [],
         }
 
+    authority_raw = outcome.get("acceptance_authority") or {}
+    authority_observed = authority_raw.get("observed") or []
+    qualified_signers = sorted({_text(row.get("accepted_by")) for row in authority_observed
+                                if row.get("qualified") and _text(row.get("accepted_by"))})
+    authority_org = _text(authority_raw.get("org_id"))
+    if qualified_signers:
+        headline = "%s（受控组织 %s；来源：manifest.buyer.acceptance_signers）" % (
+            "、".join(qualified_signers), authority_org)
+    elif authority_org:
+        headline = ("未识别（受控组织 %s 下无合格验收记录；本次不认定任何验收）"
+                    % authority_org)
+    else:
+        headline = "未识别（未配置受控买方组织；本次不认定任何验收）"
+    acceptance_authority = {
+        "configured": bool(authority_raw.get("configured")),
+        "org_id": authority_org or None,
+        "org_name": _text(authority_raw.get("org_name")) or None,
+        "source": authority_raw.get("source"),
+        "qualified_signers": qualified_signers,
+        "display": "、".join(qualified_signers) if qualified_signers else "未识别",
+        "headline": headline,
+        "observed": authority_observed,
+    }
+
     limitations = [
         "single currency; no FX conversion and no cross-currency summation",
         "unreviewed invoice/OCR documents are not booked as cost",
@@ -1231,6 +1266,10 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
         "rule applicability is human-confirmed; this report does not re-sign rules",
         "this report is not a payment authorization",
     ]
+    if outcome.get("delivery_status") != "not_applicable" and not qualified_signers:
+        limitations.append(
+            "no qualified controlled-buyer acceptance record; Delivery Accepted "
+            "stays UNPROVABLE and this report does not confirm delivery")
     domains = _source_domains(manifest)
     if not any(domain == "buyer" for domain in domains.values()):
         limitations.append(
@@ -1255,6 +1294,7 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
             "currency": job["currency"],
         },
         **{axis: outcome.get(axis) for axis in AXES},
+        "acceptance_authority": acceptance_authority,
         "axes_semantics": {
             "finance_status": "financial records, reconciliation gaps and cost "
                               "allocation are closed as an operating state; it does "
@@ -1316,6 +1356,7 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
                       "second amount"),
         },
         "open_items": open_items,
+        "difference_actions": difference_actions,
         "signoff": dict(review_projection.get("signoff") or {
             "state": "not_signed", "by": None, "at": None}),
         "source_hashes": ["sha256:%s" % item["sha256"]
@@ -1356,9 +1397,11 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
 
 def _report_markdown(report: Dict[str, Any]) -> str:
     amounts = report["amounts"]
+    authority = report.get("acceptance_authority") or {}
     lines = [
         "# 买方可签核月结报告 · %s" % report["job_id"],
         "",
+        "> 实际验收方：%s" % (authority.get("headline") or "未识别"),
         "> %s" % report["disclaimer"],
         "",
         "## 一、核验范围",
@@ -1426,13 +1469,22 @@ def _report_markdown(report: Dict[str, Any]) -> str:
             line["line_ref"], line["amount"], line["matched_amount"],
             line["residual_amount"], line["classification"], line["basis"]))
     lines.extend(["", "## 六、处理清单", ""])
+    action_summary = report.get("difference_actions") or {}
+    lines.append("- 已登记处置：%d；显式解决：%d；仍未解决：%d" % (
+        action_summary.get("total", 0),
+        len(action_summary.get("resolved_item_refs") or []),
+        len(action_summary.get("unresolved_item_refs") or [])))
+    lines.append("- 处置记录不是供应商回执核验，也不是付款授权；只有显式 resolved 才关闭该项。")
+    lines.append("")
     if report["open_items"]:
-        lines.append("| ID | 类型 | 行 | 金额 | 责任方 | 后续证据 |")
-        lines.append("|---|---|---|---:|---|---|")
+        lines.append("| ID | 类型 | 状态 | 最新处置 | 来源凭据 | 行 | 金额 | 责任方 |")
+        lines.append("|---|---|---|---|---|---|---:|---|")
         for item in report["open_items"]:
-            lines.append("| %s | %s | %s | %s | %s | %s |" % (
-                item["id"], item["kind"], item["line_ref"] or "—",
-                item["amount"] or "—", item["owner"], item["next_evidence"]))
+            latest = item.get("difference_action") or {}
+            lines.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
+                item["id"], item["kind"], item["state"],
+                latest.get("action") or "—", latest.get("source_ref") or "—",
+                item["line_ref"] or "—", item["amount"] or "—", item["owner"]))
     else:
         lines.append("（无 open items）")
     lines.extend([
@@ -1549,12 +1601,18 @@ def build_report(case_dir: Path) -> Dict[str, Any]:
 
     queue_fields = [
         "id", "kind", "line_ref", "amount", "currency", "state", "owner",
+        "latest_action", "action_source_ref", "action_by", "action_occurred_at",
         "candidate_causes", "confirmed_cause", "next_evidence", "detail",
         "finding_id",
     ]
     queue_rows = []
     for item in report["open_items"]:
         row = dict(item)
+        latest = item.get("difference_action") or {}
+        row["latest_action"] = latest.get("action")
+        row["action_source_ref"] = latest.get("source_ref")
+        row["action_by"] = latest.get("by")
+        row["action_occurred_at"] = latest.get("occurred_at")
         row["candidate_causes"] = "|".join(item.get("candidate_causes") or [])
         queue_rows.append(row)
     _write_csv(report_dir / "review-queue.csv", queue_fields, queue_rows,
@@ -1585,6 +1643,9 @@ def build_report(case_dir: Path) -> Dict[str, Any]:
             "period_job_sha256": report["replay"]["period_job_sha256"],
             "mapping_confirmed_sha256": report["replay"]["mapping_confirmed_sha256"],
             "rule_map_sha256": rule_hash,
+            "difference_actions_sha256": (
+                _sha_file(case_dir / "difference-actions.jsonl")
+                if (case_dir / "difference-actions.jsonl").is_file() else None),
         },
         "rule_versions": report["replay"]["rule_versions"],
         "calculation_fingerprint": report["replay"]["calculation_fingerprint"],

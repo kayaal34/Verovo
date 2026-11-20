@@ -1,3 +1,67 @@
+## v0.15.0 - 2026-11-20
+
+V-21 / V-02 from the 2026-11-19/20 full-scenario end-to-end test.
+
+### Fixed
+
+- **V-21 the accepting party is a controlled identity, not a self-declared
+  string**: acceptance authority now comes from the controlled organization
+  record and credentials. A supplier accepting its own delivery, an unknown
+  organization, or a forged buyer label is `UNPROVABLE` and can never reach
+  Buyer Verified `PASS`. The report header shows who actually accepted.
+  `AcceptanceAuthorityTests` covers supplier, unknown-org, forged-string and
+  legitimate-buyer cases.
+- **V-02 the delivered report is regenerated after signoff**: signoff now
+  re-renders `report-delivered.md`/`.json` bound to the signed revision, the
+  input fingerprint and the signoff reference. The pre-signoff snapshot is kept
+  and labelled as pre-signoff. Evidence added after signoff can only produce a
+  new revision; it never mutates the signed report.
+
+### Note
+
+The Growovo evidence handoff remains evidence-only: importing it does not
+upgrade its grade, prove supplier acceptance or authorize payment.
+
+## v0.14.3 - 2026-11-19
+
+V-09 / V-10 from the 2026-11-18 review.
+
+### Fixed
+
+- **Close differences have explicit append-only dispositions**: `close action`
+  records inquiry/correction/dispute/reserve/resolved against one report open
+  item and calculation fingerprint, with owner, registrar and source reference.
+  Only an explicit `resolved` closes the item; review/signoff never do. Amounts
+  stay unchanged, later disputes can reopen an item, and signed revisions stay
+  immutable. These are local declarations, not proof of supplier receipt or
+  acceptance and never payment authorization.
+- **Growovo handoff imports as evidence only**: `handoff import-growovo` checks
+  the schema, run id, SHA-256 body fingerprint, sensitive-field ban and non-empty
+  evidence before writing to a new/empty directory. Integrity success does not
+  independently verify receipts or outcomes and does not enter canonical finance.
+- **V-09 booking is a transaction**: `bill-candidate book` validates
+  `--usage`/`--rule-map` before creating anything, writes the whole bundle in a
+  staging directory, commits it with `booking.json` as the marker, and updates
+  the candidate last. Failures leave no half-usable period bundle; a crash
+  after commit is repaired by rerunning the same book (no duplicate export),
+  and an interrupted finalize is rolled back from `.booking-pending.json`
+  before retrying. A booked invoice or bundle can never be overwritten by
+  another candidate.
+- **Candidate ids are allocated under a store lock**: `add_candidate` builds
+  each draft in a staging dir and renames it once under an exclusive
+  `.bill-candidates.lock`, so two concurrent imports cannot share `cand-NNNN`
+  or expose a half-written candidate; `candidate.json` is replaced atomically.
+- **V-10 import integrity is tested**: `healthcheck/tests/test_import_integrity.py`
+  imports every module in `buyer_ledger`, `verovo_lab` and
+  `verovo_healthcheck`, resolves every relative import (including lazy ones),
+  checks declared console scripts and imports the packages from outside the
+  checkout — the deleted-`stats.py`/`prereg.py` class of breakage now fails CI.
+
+Tests: `buyer-ledger/tests/test_bill_candidate_transaction.py` (10),
+`buyer-ledger/tests/test_close_actions.py` (4),
+`buyer-ledger/tests/test_growovo_handoff.py` (4), and
+`healthcheck/tests/test_import_integrity.py` (4).
+
 # Changelog
 
 ## v0.14.2 - 2026-11-18
