@@ -52,9 +52,11 @@ SCAN_SCHEMA = "verovo.close-scan/1"
 BUYER_CLOSE_CASE_SCHEMA = "verovo.buyer-close-case/1"
 
 # C-01 §3 frozen error-code registry. Correct refusal is a first-class result.
+# UNSUPPORTED_CAPABILITY (V-09b): the current platform cannot provide the
+# guarantee the command promises (e.g. no fcntl, so no cross-process lock).
 ERROR_CODES = (
     "INPUT_REQUIRED", "AUTH_REQUIRED", "REVIEW_REQUIRED", "UNSUPPORTED_SCOPE",
-    "POLICY_DENIED", "RATE_LIMITED", "STALE_SOURCE",
+    "UNSUPPORTED_CAPABILITY", "POLICY_DENIED", "RATE_LIMITED", "STALE_SOURCE",
     "INDETERMINATE_EXTERNAL_ACTION", "ARTIFACT_PARTIAL", "INTERNAL_ERROR",
 )
 
