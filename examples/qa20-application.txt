@@ -1,13 +1,7 @@
-To: tongroy18@gmail.com
-Subject: Apply: $20 Metering QA check
+The former fixed-price metering check offer closed on 2026-10-21.
 
-The metering question:
-The metric I currently report (or: no claim, consistency only):
-Source and time window:
-Attached manually: schema and up to 20 redacted sample rows for free fit review.
-Can session, operation and attempt identities be traced?
+For the current free sample measurement scope and intake instructions, visit
+https://roy-tong.github.io/Verovo/services.html
 
-The decision this should support:
-What I have already tried or learned from free tools (if any):
-
-Please first state the free baseline, remaining question and proposed extra work, then confirm scope, input fit and payment availability.
+For a supplier invoice, delivery or renewal review, describe the supplier, period, decision and available record types at
+https://roy-tong.github.io/Verovo/first-look.html#contact
