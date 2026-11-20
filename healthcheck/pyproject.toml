@@ -8,7 +8,7 @@ build-backend = "setuptools.build_meta"
 # "verovo-healthcheck" from schema v1 — do not rename inside exports.
 name = "verovo"
 version = "0.15.1"
-description = "Buyer-side AI service charge and delivery review, supported bill recounts and local agent diagnostics. Zero external dependencies."
+description = "Buyer-side verification of AI service charges and delivery. Review one supplier and billing period with explicit criteria and evidence gaps."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -23,6 +23,10 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Topic :: Software Development :: Quality Assurance",
 ]
+
+[project.urls]
+Homepage = "https://roy-tong.github.io/Verovo/"
+Repository = "https://github.com/roy-tong/Verovo"
 
 [project.scripts]
 verovo = "verovo_healthcheck.cli:main"

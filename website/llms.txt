@@ -1,6 +1,6 @@
 # Verovo
 
-> Buyer-side AI service charge and delivery verification. Independent workflows with explicit criteria; local tools and sample measurement runs are free. Enterprise scope and commercial acceptance remain under validation. Last reviewed: 2026-11-15.
+> Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.
 
 ## Start here
 
@@ -8,7 +8,7 @@
 - [Services](https://roy-tong.github.io/Verovo/services.html): free measurement-run scope, inputs and turnaround
 - [FAQ（中文）](https://roy-tong.github.io/Verovo/faq.html): Chinese answers to common queries (AI bill checking, API cost recount, open-source reconciliation tools, AI-support billing disputes) with sourced numbers; FAQPage structured data
 - [Tool bill coverage](https://roy-tong.github.io/Verovo/tools.html): cataloged tool billing models for buyer tasks; provider work is a conditional extension. Cataloged is not live-validated.
-- [Healthcheck](https://github.com/roy-tong/verovo/blob/main/healthcheck/README.md): local session checks, sharing and supported commands; install from PyPI `pipx install verovo` (current release 0.13.0, 2026-11-04)
+- [Healthcheck](https://github.com/roy-tong/verovo/blob/main/healthcheck/README.md): local session checks, sharing and supported commands; install from PyPI `pipx install verovo`
 - [SDK](https://github.com/roy-tong/verovo/blob/main/sdk/README.md): Provider SDK `@verovo/mcp` on npm, independently versioned
 - [Release notes](https://roy-tong.github.io/Verovo/releases.html): independent package versions and dated releases
 - [AI invoice reconciliation](https://roy-tong.github.io/Verovo/blog/ai-invoice-reconciliation.html): three-step method, seven failure modes and a free browser recount; the reproducible sample lives in `buyer-ledger/examples/ai-invoice-reconciliation`
@@ -30,7 +30,7 @@
 ## Product definition and buyer review
 
 - [Product definition](https://github.com/roy-tong/verovo/blob/main/docs/product-definition.md): buyer-first charges and delivery, independent workflows; provider extensions need a concrete transaction.
-- [Buyer review guide](https://github.com/roy-tong/verovo/blob/main/docs/buyer-review.md): main-preview local criteria and JSON evidence; separate verdicts, hashes and offline reports. Not in v0.13.0.
+- [Buyer review guide](https://github.com/roy-tong/verovo/blob/main/docs/buyer-review.md): local criteria and JSON evidence; separate verdicts, hashes and offline reports.
 - [Synthetic buyer report](https://roy-tong.github.io/Verovo/examples/buyer-review.html): charge match, unmet delivery requirement and missing evidence, kept separate.
 
 ## Service and evidence limits

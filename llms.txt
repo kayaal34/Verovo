@@ -1,16 +1,18 @@
 # Verovo
 
-> Free local checks for Codex / Claude Code logs and reproducible agent metering verification. Human-delivered diagnostics: $10 Healthcheck and $20 Metering QA. Last reviewed: 2026-11-14.
+> Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.
 
 ## Start here
 
 - [Website](https://roy-tong.github.io/Verovo/): overview and local quickstart
-- [Services](https://roy-tong.github.io/Verovo/services.html): free measurement-run scope, input requirements, turnaround and refunds
-- [FAQ（中文）](https://roy-tong.github.io/Verovo/faq.html): Chinese answers to common queries (AI bill checking, API cost recount, open-source reconciliation tools) with sourced numbers
-- [Tool bill coverage](https://roy-tong.github.io/Verovo/tools.html): cataloged tool billing models for buyer tasks; cataloged is not live-validated
+- [Services](https://roy-tong.github.io/Verovo/services.html): free measurement-run scope, inputs and turnaround
+- [FAQ（中文）](https://roy-tong.github.io/Verovo/faq.html): Chinese answers to common queries (AI bill checking, API cost recount, open-source reconciliation tools, AI-support billing disputes) with sourced numbers; FAQPage structured data
+- [Tool bill coverage](https://roy-tong.github.io/Verovo/tools.html): cataloged tool billing models for buyer tasks; provider work is a conditional extension. Cataloged is not live-validated.
 - [Healthcheck](https://github.com/roy-tong/verovo/blob/main/healthcheck/README.md): local session checks, sharing and supported commands; install from PyPI `pipx install verovo`
 - [SDK](https://github.com/roy-tong/verovo/blob/main/sdk/README.md): Provider SDK `@verovo/mcp` on npm, independently versioned
 - [Release notes](https://roy-tong.github.io/Verovo/releases.html): independent package versions and dated releases
+- [AI invoice reconciliation](https://roy-tong.github.io/Verovo/blog/ai-invoice-reconciliation.html): three-step method, seven failure modes and a free browser recount; the reproducible sample lives in `buyer-ledger/examples/ai-invoice-reconciliation`
+- [Per-resolution bills](https://roy-tong.github.io/Verovo/blog/resolution-bill-check.html): who attested each resolution, and how to check that bill locally
 
 ## Measurement and evidence
 
@@ -20,21 +22,27 @@
 - [Quality](https://github.com/roy-tong/verovo/blob/main/standard/QUALITY.md): evidence and claim discipline
 - [Conformance pack](https://github.com/roy-tong/verovo/blob/main/conformance/pack/README.md): supported checks and fixture requirements
 - [Claims index](https://roy-tong.github.io/Verovo/claims.html): dated reproductions, corrections and upstream responses
-- [AI invoice reconciliation](https://github.com/roy-tong/verovo/blob/main/buyer-ledger/docs/ai-invoice-reconciliation.md): seven failure modes and a runnable synthetic bill reconciled to the cent
-- [Per-resolution bills](https://roy-tong.github.io/Verovo/blog/resolution-bill-check.html): who attested each resolution
 - [Vocabularies](https://github.com/roy-tong/verovo/blob/main/registry/vocabularies.yaml): canonical enums
 - [Metric registry](https://github.com/roy-tong/verovo/blob/main/registry/metrics.yaml): machine-readable contracts
 
+- [Commercial scope](https://github.com/roy-tong/verovo/blob/main/docs/commercial-narrative.md): buyer tasks, provider incentives, partners and open-source boundaries
+
+## Product definition and buyer review
+
+- [Product definition](https://github.com/roy-tong/verovo/blob/main/docs/product-definition.md): buyer-first charges and delivery, independent workflows; provider extensions need a concrete transaction.
+- [Buyer review guide](https://github.com/roy-tong/verovo/blob/main/docs/buyer-review.md): local criteria and JSON evidence; separate verdicts, hashes and offline reports.
+- [Synthetic buyer report](https://roy-tong.github.io/Verovo/examples/buyer-review.html): charge match, unmet delivery requirement and missing evidence, kept separate.
+
 ## Service and evidence limits
 
-Analysis runs locally; a user may explicitly send a summary or redacted sample. `share --out` writes immediately to a local file; inspect before sending. Confirmation is not payment. Work starts only after payment, fit approval and complete input. First response within 24 hours; delivery within 24 hours after those conditions, unless a different slot is agreed before payment.
+Analysis runs locally. Sharing is a user choice after inspection. Existing sample-based measurement runs are free with their published scope. Enterprise charge/delivery reviews require a concrete task, agreed scope and any individually agreed fee; no fixed price or recovery guarantee is published. Delivery review does not require a billing error. Rule applicability and source truth require human review.
 
 Summary counts support interpretation, not guaranteed root-cause diagnosis. Core FMT-002 does not verify token/cache semantics, invoice amounts or pricing accuracy. Missing evidence remains UNPROVABLE. Technical findings and synthetic fixtures are not customer value or paid-demand proof.
 
 ## Further reference
 
 - [Roadmap](https://github.com/roy-tong/verovo/blob/main/ROADMAP.md): current focus and deferred work
-- [Buyer reconciliation](https://roy-tong.github.io/Verovo/first-look.html): experimental reference, not a current fixed-price or free review offer
+- [Buyer reconciliation](https://roy-tong.github.io/Verovo/first-look.html): buyer task-fit discussion and supported scope; no standard package or guaranteed recovery
 - [Lab](https://github.com/roy-tong/verovo/blob/main/lab/README.md): existing experimental toolkit
 - [Contributing](https://github.com/roy-tong/verovo/blob/main/CONTRIBUTING.md): contribution and AI-use rules
 - [Agent instructions](https://github.com/roy-tong/verovo/blob/main/AGENTS.md): invariants and required checks

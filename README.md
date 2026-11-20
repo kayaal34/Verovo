@@ -2,9 +2,9 @@
 
 <img src="assets/verovo-logo-card.png" alt="Verovo" width="300">
 
-**Know what an AI task really costs, and what its result is worth.**
+**Review one AI supplier for one billing period before acceptance or renewal**
 
-Verovo connects buyer logs, supplier charges, financial records and business outcomes. Review charges and delivery, allocate direct and shared costs to tasks, and calculate cost per verified success and ROI when the evidence supports it.
+Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.
 
 For teams buying or operating AI services, the output is a reproducible economic record: task costs, allocation rules, verified results and explicit evidence gaps. The local `economics` command runs on an explicit case, and `intake` assembles that case from a local billing-period bundle; automated optimization and insurance remain future work. [Feature status and build/integrate decisions](docs/feature-status.md).
 
@@ -99,7 +99,7 @@ truth; the tool does not infer contract terms or judge arbitrary AI output quali
 Install the current CLI release:
 
 ```bash
-python3 -m pip install "verovo==0.13.0"
+python3 -m pip install verovo
 verovo recount --sample
 ```
 
@@ -115,7 +115,7 @@ and realized corrections separately. A rule-priced finding is not recovered mone
 
 | Capability | Current boundary |
 |---|---|
-| Buyer review (main preview) | Explicit charge/delivery criteria, local JSON evidence, separate results and offline HTML/JSON; no universal contract parser |
+| Buyer review | Explicit charge/delivery criteria, local JSON evidence, separate results and offline HTML/JSON; no universal contract parser |
 | Supported billing recounts | Selected export formats and versioned rules; applicability must be reviewed |
 | Buyer Ledger | Local tool-bill processing and 26 catalog entries; cataloged does not mean connected or validated on real customer bills |
 | Developer diagnostics | Local coding-agent log checks, measurement conformance and regression fixtures |

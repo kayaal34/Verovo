@@ -1,12 +1,7 @@
-To: tongroy18@gmail.com
-Subject: Apply: $10 Healthcheck Diagnosis
+The former fixed-price local healthcheck offer closed on 2026-10-21.
 
-The anomaly I want explained:
-Runtime and CLI version:
-Attached manually: summary.json (inspect before sending).
-I understand aggregate counts do not establish a root cause.
+For the current free sample measurement scope and intake instructions, visit
+https://roy-tong.github.io/Verovo/services.html
 
-The decision this should support:
-What I have already tried or learned from free tools (if any):
-
-Please first state the free baseline, remaining question and proposed extra work, then confirm scope, input fit and payment availability.
+For a supplier invoice, delivery or renewal review, describe the supplier, period, decision and available record types at
+https://roy-tong.github.io/Verovo/first-look.html#contact
