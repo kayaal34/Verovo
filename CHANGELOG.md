@@ -1,3 +1,29 @@
+## v0.15.4 - 2026-11-20
+
+Reading a Growovo handoff as evidence, not as a booking.
+
+### Added
+
+- **`handoff normalize-growovo <handoff.json> --out <dir>`** rewrites a
+  Growovo handoff into the ledger's own Period Intake files — `manifest.json`,
+  `tasks.csv`, `runs.jsonl`, `outcomes.csv` — so a period can cite what the
+  other product recorded without importing its vocabulary. The package is
+  verified against its `integrity_sha256` before anything is written, and a
+  mismatch exits 2 leaving the output directory untouched. Committed operations
+  become tasks and runs; dry runs are excluded and counted in `excluded`;
+  product events land in `outcomes.csv` as `status=source_declared` with
+  `verified=false`, because Growovo observed its own action, not the buyer's
+  outcome. No `usage` table is derived: a Growovo send has no monetary cost,
+  and a zero-cost usage row would become a fake "unknown cost" in Task
+  Economics. The manifest records `task_bindings_source` (`payload` for
+  packages that carry bindings, `derived` otherwise),
+  `receipt_verified_by_verovo: false`,
+  `business_outcome_observed_by_verovo: false` and
+  `terminal_state: DELIVERED_WITH_GAP` when events remain unverified.
+  `buyer-ledger/tests/test_handoff_normalize.py` covers 7 cases: hash
+  mismatch, dry-run exclusion, unverified outcomes, no usage table, output
+  directory must be empty.
+
 ## v0.15.3 - 2026-11-20
 
 Handoff premises, the shared error families, and a readable report surface.
