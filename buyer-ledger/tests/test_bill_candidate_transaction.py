@@ -83,14 +83,16 @@ class BookTransactionTests(BillCandidateTestBase):
                          sorted(item.name for item in self.bundle.iterdir()))
         self.assertFalse(list(self.root.glob(".staging-book-*")))
 
-    def test_copy_failure_leaves_no_partial_bundle(self):
+    def test_missing_source_at_book_time_leaves_no_partial_bundle(self):
+        # V-09b: a source file that disappeared after review is a stale source,
+        # not a copy accident; booking must refuse before writing anything.
         candidate = self.ready()
         source = self.store / candidate["candidate_id"] / candidate["source"]["file"]
         source.unlink()
         with self.assertRaises(CloseError) as ctx:
             bc.book(self.store, candidate["candidate_id"], reviewer=REVIEWER,
                     into=self.bundle, account="acct-1")
-        self.assertEqual("ARTIFACT_PARTIAL", ctx.exception.code)
+        self.assertEqual("STALE_SOURCE", ctx.exception.code)
         self.assertFalse(self.bundle.exists())
 
     def test_interrupted_finalize_is_rolled_back_then_replayed(self):

@@ -139,8 +139,9 @@ class PeriodJobContractTests(CloseCaseTestBase):
     def test_error_codes_are_c01_registered(self):
         self.assertEqual(
             ("INPUT_REQUIRED", "AUTH_REQUIRED", "REVIEW_REQUIRED", "UNSUPPORTED_SCOPE",
-             "POLICY_DENIED", "RATE_LIMITED", "STALE_SOURCE",
-             "INDETERMINATE_EXTERNAL_ACTION", "ARTIFACT_PARTIAL", "INTERNAL_ERROR"),
+             "UNSUPPORTED_CAPABILITY", "POLICY_DENIED", "RATE_LIMITED",
+             "STALE_SOURCE", "INDETERMINATE_EXTERNAL_ACTION", "ARTIFACT_PARTIAL",
+             "INTERNAL_ERROR"),
             ERROR_CODES)
         err = CloseError("INPUT_REQUIRED", "x")
         self.assertTrue(issubclass(CloseError, ValueError))

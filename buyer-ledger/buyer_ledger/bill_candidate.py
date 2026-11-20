@@ -413,28 +413,32 @@ def _store_lock(store: Path):
     def locked():
         root = Path(store)
         root.mkdir(parents=True, exist_ok=True)
-        fcntl = None
         try:
             import fcntl as _fcntl
-            fcntl = _fcntl
-        except ImportError:  # Windows: no flock, single-process discipline remains
-            fcntl = None
+        except ImportError:
+            # V-09b: without flock two processes can allocate the same candidate
+            # id and write the same bundle. Refuse instead of claiming mutual
+            # exclusion we do not have.
+            raise CloseError(
+                "UNSUPPORTED_CAPABILITY",
+                "当前平台没有 fcntl，无法保证候选目录的跨进程互斥（并行导入会撞号、"
+                "并行入账会写坏同一个账期包）。这里直接拒绝执行；请在 macOS/Linux "
+                "上运行，或保证同一时间只有一个进程操作该候选目录。") from None
+        fcntl = _fcntl
         handle = open(root / STORE_LOCK_NAME, "a+")
         try:
-            if fcntl is not None:
-                try:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except OSError:
-                    raise CloseError(
-                        "REVIEW_REQUIRED",
-                        "并发冲突：另一个进程正在导入或入账候选账单（%s）。"
-                        "等它结束后重跑；不要并行 book 同一批候选。"
-                        % (root / STORE_LOCK_NAME).name) from None
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                raise CloseError(
+                    "REVIEW_REQUIRED",
+                    "并发冲突：另一个进程正在导入或入账候选账单（%s）。"
+                    "等它结束后重跑；不要并行 book 同一批候选。"
+                    % (root / STORE_LOCK_NAME).name) from None
             yield
         finally:
             try:
-                if fcntl is not None:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
             finally:
                 handle.close()
 
@@ -617,6 +621,74 @@ def load_candidate(store: Path, candidate_id: str) -> Dict[str, Any]:
         raise CloseError("STALE_SOURCE",
                          "%s is not a %s candidate" % (candidate_id, CANDIDATE_SCHEMA))
     return candidate
+
+
+def _verify_candidate_source(store: Path, candidate: Dict[str, Any]) -> None:
+    """Refuse to review or book a candidate whose source has been swapped.
+
+    ``add_candidate`` records the SHA-256 of the bill file and of the text it
+    was extracted from. A field review is a human attestation about *that*
+    file; booking copies *that* file into the bundle. If either changed after
+    the review, the old review no longer describes what would be booked, so
+    this fails closed with ``STALE_SOURCE`` instead of exporting it.
+    """
+    candidate_id = candidate["candidate_id"]
+    directory = _candidate_dir(store, candidate_id)
+    source = candidate.get("source") or {}
+    name = _text(source.get("file"))
+    if not name:
+        raise CloseError("STALE_SOURCE",
+                         "%s 没有记录源文件名，无法核对审核对象；请重新导入。" % candidate_id)
+    source_path = directory / name
+    if not source_path.is_file():
+        raise CloseError(
+            "STALE_SOURCE",
+            "%s 的源文件 %s 不存在；审核/入账对象缺失，请重新导入并重新审核。"
+            % (candidate_id, name))
+    expected = _text(source.get("sha256"))
+    if not expected or _sha256_file(source_path) != expected:
+        raise CloseError(
+            "STALE_SOURCE",
+            "%s 的源文件 %s 与创建候选时的哈希不一致：审核/入账对象已被替换或修改。"
+            "请重新导入账单并重新审核；不要沿用旧审核结论入账。"
+            % (candidate_id, name))
+    raw_name = _text(source.get("raw_text"))
+    if raw_name:
+        raw_path = directory / raw_name
+        raw_expected = _text(source.get("raw_text_sha256"))
+        if not raw_path.is_file() or not raw_expected \
+                or _sha256_file(raw_path) != raw_expected:
+            raise CloseError(
+                "STALE_SOURCE",
+                "%s 的 OCR 文本 %s 与创建候选时的哈希不一致；字段证据不再对应当前文本。"
+                "请重新导入账单并重新审核。" % (candidate_id, raw_name))
+    ocr_name = _text(source.get("ocr_payload"))
+    if ocr_name:
+        ocr_path = directory / ocr_name
+        try:
+            payload = json.loads(ocr_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise CloseError(
+                "STALE_SOURCE",
+                "%s 的结构化 OCR 结果 %s 不可读（%s）；请重新导入账单并重新审核。"
+                % (candidate_id, ocr_name, exc)) from exc
+        lines = payload.get("lines") if isinstance(payload, dict) else None
+        if not isinstance(payload, dict) \
+                or payload.get("schema") != OCR_LINES_SCHEMA \
+                or not isinstance(lines, list):
+            raise CloseError(
+                "STALE_SOURCE",
+                "%s 的结构化 OCR 结果 %s 不是 %s；请重新导入账单并重新审核。"
+                % (candidate_id, ocr_name, OCR_LINES_SCHEMA))
+        if raw_name and (directory / raw_name).is_file():
+            rebuilt = "".join(
+                _text(line.get("text")) + "\n"
+                for line in lines if isinstance(line, dict))
+            if (directory / raw_name).read_text(encoding="utf-8") != rebuilt:
+                raise CloseError(
+                    "STALE_SOURCE",
+                    "%s 的 OCR 文本与结构化 OCR 行不一致；字段证据可能来自被改过的"
+                    "识别结果。请重新导入账单并重新审核。" % candidate_id)
 
 
 def list_candidates(store: Path) -> List[Dict[str, Any]]:
@@ -1001,6 +1073,7 @@ def review_field(store: Path, candidate_id: str, *, field: str, value: Any,
         raise CloseError("INPUT_REQUIRED",
                          "%s is blocked (%s); fix the source before reviewing fields"
                          % (candidate_id, (candidate.get("blocked") or {}).get("reason")))
+    _verify_candidate_source(store, candidate)
     target = None
     for entry in candidate["fields"]:
         if entry["name"] == field:
@@ -1092,6 +1165,7 @@ def _book_locked(store: Path, candidate_id: str, *, reviewer: str, into: Path,
                          % (candidate_id,
                             (candidate.get("blocked") or {}).get("reason"),
                             (candidate.get("blocked") or {}).get("detail")))
+    _verify_candidate_source(store, candidate)
     queue = review_queue(candidate)
     if queue:
         raise CloseError(
@@ -1268,6 +1342,10 @@ def _book_locked(store: Path, candidate_id: str, *, reviewer: str, into: Path,
             writer.writerows(rows)
 
         doc_path = staging / doc_name
+        # Re-check right before the copy: the review and this copy are separated
+        # by the whole build of the export, and the bundle must contain exactly
+        # the file the reviewer attested to.
+        _verify_candidate_source(store, candidate)
         shutil.copyfile(source_file, doc_path)
 
         (staging / "period-job.json").write_text(

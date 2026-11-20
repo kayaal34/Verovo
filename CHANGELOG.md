@@ -1,3 +1,31 @@
+## v0.15.2 - 2026-11-20
+
+V-09b from the 2026-11-20 main review.
+
+### Fixed
+
+- **V-09b a booked bill must still be the bill that was reviewed**: a candidate
+  records the source file's SHA-256 at creation. `review_field` and `book` now
+  re-verify the source file and the OCR artefacts before using the earlier
+  review: the raw source hash, the `raw_text_sha256` in `ocr.txt`, and the OCR
+  payload's schema, lines and reconstructed text must all still match. Any
+  change raises `STALE_SOURCE` and the old review can no longer be carried into
+  a period bundle; `book` checks again immediately before copying the source.
+  `buyer-ledger/tests/test_bill_candidate_integrity.py` covers a swapped
+  source, edited OCR text, a tampered OCR payload and the clean path.
+- **candidate locking fails closed where `fcntl` is unavailable**: the
+  candidate store lock used to continue without a lock when `fcntl` could not
+  be imported. It now raises `UNSUPPORTED_CAPABILITY` instead of pretending to
+  hold a cross-process lock. `UNSUPPORTED_CAPABILITY` is registered in the
+  close error-code contract.
+
+### Tests
+
+- buyer-ledger: 363 tests OK (9 new in `test_bill_candidate_integrity.py`).
+- healthcheck: 609 tests OK; `verovo selftest` PASS; metric registry VALID
+  (18 metrics); conformance 22/22 metrics, 15/15 outcome, 23/23 delegation,
+  2/2 SSE vectors PASS.
+
 ## v0.15.1 - 2026-11-20
 
 Release-notes repair for v0.15.0. No product behaviour changes.
