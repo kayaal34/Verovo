@@ -1111,6 +1111,14 @@ def cmd_handoff_import_growovo(args):
     print("边界：交接完整性已核验 ≠ 外部回执、业务结果或账单金额已由 Verovo 独立核验。")
 
 
+def cmd_handoff_normalize_growovo(args):
+    from . import handoff_evidence
+    result = handoff_evidence.normalize_handoff_file(args.source, args.out)
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    print("边界：tasks/runs/outcomes 是证据、不是入账；committed 是动作事实，"
+          "product event 一律未经验证（verified=false），dry-run 不计执行与成本。")
+
+
 def cmd_close_action(args):
     """Record/list explicit difference dispositions; never execute external writes."""
     from . import close_actions, close_revision
@@ -1365,6 +1373,13 @@ def build_parser():
     sp.add_argument("source", help="Growovo 导出的交接 JSON")
     sp.add_argument("--out", required=True, help="空目录或新目录；拒绝覆盖已有证据")
     sp.set_defaults(func=cmd_handoff_import_growovo)
+    sp = handoff_sub.add_parser(
+        "normalize-growovo",
+        help="把已核验的 growovo.verovo-handoff/1 规范化为 Period Intake 可导入的 "
+             "tasks/runs/outcomes（不派生成本、不自动入账）")
+    sp.add_argument("source", help="Growovo 导出的交接 JSON（完整性校验后才会写）")
+    sp.add_argument("--out", required=True, help="空目录或新目录；拒绝覆盖已有文件")
+    sp.set_defaults(func=cmd_handoff_normalize_growovo)
 
     sp = sub.add_parser("close",
                         help="账期包导入、人工字段映射与 BuyerCloseCase（V-02）")
