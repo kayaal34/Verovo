@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import copy
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -86,6 +87,13 @@ def _source_inputs(bundle: Path, manifest: Dict[str, Any]) -> List[Tuple[str, Pa
     values = [("manifest.json", bundle / "manifest.json")]
     if manifest.get("rule_map"):
         values.append((str(manifest["rule_map"]), bundle / str(manifest["rule_map"])))
+        rule_map = json.loads((bundle / str(manifest["rule_map"])).read_text(encoding="utf-8"))
+        for rule in rule_map.get("rules") or []:
+            driver = rule.get("driver") if isinstance(rule, dict) else None
+            source_ref = str((driver or {}).get("source_ref") or "")
+            if source_ref:
+                relative = source_ref.split("#", 1)[0]
+                values.append((relative, bundle / relative))
     for entries in (manifest.get("sources") or {}).values():
         for entry in entries:
             values.append((str(entry["path"]), bundle / str(entry["path"])))
@@ -110,7 +118,10 @@ def export_proof(bundle_dir: str | Path, out_dir: str | Path, *, by: str,
                  classification: str = "private") -> Dict[str, Any]:
     if not by.strip():
         raise ProofExportError("REVIEW_REQUIRED: named proof reviewer is required")
-    if classification not in ("private", "synthetic", "public-redacted"):
+    if classification == "public-redacted":
+        raise ProofExportError(
+            "PUBLIC_PROJECTION_REQUIRED: canonical public-redacted export is refused until a whitelist projection exists")
+    if classification not in ("private", "synthetic"):
         raise ProofExportError("INPUT_REQUIRED: unknown classification")
     bundle_dir = Path(bundle_dir).resolve()
     out_dir = Path(out_dir).resolve()
@@ -145,7 +156,7 @@ def export_proof(bundle_dir: str | Path, out_dir: str | Path, *, by: str,
                 "acceptance_criteria": [criterion],
                 "out_of_scope": ["自动付款、退款、争议或法律签章", "把完成轴当业务 PASS", "跨币种、跨账户或未批准规则"],
             }],
-            "approved_by": str(buyer.get("name") or by),
+            "approved_by": by,
         }
         steps = [{
             "step_id": "canonical-finance", "action": "canonical_finance.run",
@@ -176,9 +187,10 @@ def export_proof(bundle_dir: str | Path, out_dir: str | Path, *, by: str,
             "canonical-artifact", "P1", "PASS", "canonical 账期产物存在且可读取",
             "executor_observed", ["canonical-artifact"], "仅当前输入、规则和算法版本")]
         groups = (
-            ("Rule Repriced", "rule-repriced", "P3", "independent_validator"),
+            ("Rule Repriced", "rule-repriced", "P1", "executor_observed"),
             ("Invoice Reconciled", "invoice-reconciled", "P2", "independent_state"),
-            ("Buyer Verified", "buyer-verified", "P3", "independent_validator"),
+            ("Vendor Reconciled", "vendor-reconciled", "P1", "executor_observed"),
+            ("Buyer Verified", "buyer-verified", "P1", "executor_observed"),
             ("Delivery Accepted", "delivery-accepted", "P4", "external_observation"),
         )
         conclusions = result.get("evidence_conclusions") or {}
@@ -199,6 +211,33 @@ def export_proof(bundle_dir: str | Path, out_dir: str | Path, *, by: str,
                     "%s / %s" % (name, row_id), independence, refs,
                     "仅该账期、来源、规则和结论行；不外推其他账期",
                     str(row.get("reason") or "") if status not in ("PASS", "FAIL") else ""))
+        for prefix in ("rule-repriced", "buyer-verified"):
+            checks.append(_check(
+                "independent-review:" + prefix, "P3", "UNCHECKED",
+                "独立专业复核者接受该账期的规则与买方资格判断", "independent_validator", [],
+                "P1 保留 canonical 自检；只有另行登记的独立复核才能改变此状态",
+                "没有随包提供独立专业复核记录"))
+        open_items = (result.get("case") or {}).get("open_items") or []
+        checks.append(_check(
+            "coverage:canonical", "P1", "INDETERMINATE" if open_items else "PASS",
+            "canonical 输入与 open items 的覆盖状态", "executor_observed", ["canonical-artifact"],
+            "仅当前账期已知输入；未知来源覆盖不被假定为完整",
+            "存在 %d 个 open items" % len(open_items) if open_items else ""))
+        for axis in ("finance_status", "verification_status", "delivery_status", "economics_status"):
+            value = str(result.get(axis) or "blocked")
+            axis_status = ("PASS" if value == "complete" else
+                           "UNCHECKED" if value == "not_applicable" else
+                           "INDETERMINATE" if value == "partial" else "FAIL")
+            checks.append(_check(
+                "completion-axis:" + axis, "P1", axis_status,
+                "%s 的完成轴为 %s" % (axis, value), "executor_observed", ["canonical-artifact"],
+                "完成轴只表示该轴是否闭合，不表示业务结果有利",
+                "该轴不适用" if value == "not_applicable" else value if axis_status != "PASS" else ""))
+        checks.append(_check(
+            "history:close-process", "P1", "UNCHECKED",
+            "导入、映射审核、复核、签核与修订历史", "executor_observed", [],
+            "canonical 包只记录当前运行；close 历史需另行提供",
+            "当前输入没有完整 close 过程轨迹"))
         bundle = {
             "schema": "ovo.acceptance-bundle/1", "task_contract": contract,
             "execution_trace": trace,
@@ -262,9 +301,66 @@ def export_proof(bundle_dir: str | Path, out_dir: str | Path, *, by: str,
         raise
 
 
+def _proof_structure_errors(proof_dir: Path) -> List[Dict[str, str]]:
+    errors = []
+    try:
+        proof = json.loads((proof_dir / "proof.json").read_text(encoding="utf-8"))
+        replay = json.loads((proof_dir / "replay" / "manifest.json").read_text(encoding="utf-8"))
+        contract = json.loads((proof_dir / "contract.json").read_text(encoding="utf-8"))
+        checks = json.loads((proof_dir / "checks.json").read_text(encoding="utf-8"))
+        bundle = json.loads((proof_dir / "bundle.json").read_text(encoding="utf-8"))
+        trace = [json.loads(line) for line in (proof_dir / "trace.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+    except (OSError, json.JSONDecodeError) as exc:
+        return [{"reason": "missing_or_invalid", "detail": str(exc)}]
+    contract_id = contract.get("contract_id")
+    for name, doc in (("proof", proof), ("replay", replay), ("checks", checks)):
+        if doc.get("contract_id") != contract_id:
+            errors.append({"reason": "contract_mismatch", "detail": name})
+    if proof.get("schema") != "ovo.proof/1" or replay.get("schema") != "ovo.replay-manifest/1" \
+            or checks.get("schema") != "ovo.proof-checks/1":
+        errors.append({"reason": "schema", "detail": "proof/replay/checks schema mismatch"})
+    if contract != bundle.get("task_contract"):
+        errors.append({"reason": "contract_projection", "detail": "contract.json differs from bundle"})
+    if trace != (bundle.get("execution_trace") or {}).get("steps"):
+        errors.append({"reason": "trace_projection", "detail": "trace.jsonl differs from bundle"})
+    if not str((proof.get("environment") or {}).get("product_version") or "").strip():
+        errors.append({"reason": "algorithm_version", "detail": "missing product_version"})
+    expected = replay.get("expected_output") or {}
+    if not model_hash(expected.get("semantic_sha256")):
+        errors.append({"reason": "expected_output", "detail": "missing semantic_sha256"})
+    if expected.get("excluded") != ["intake_report.generated_at"]:
+        errors.append({"reason": "semantic_exclusions", "detail": "unexpected fingerprint exclusions"})
+    artifacts = proof.get("artifacts") or []
+    canonical = next((item for item in artifacts if item.get("artifact_id") == "canonical"), None)
+    if canonical is None:
+        errors.append({"reason": "artifact", "detail": "canonical artifact missing from proof"})
+    else:
+        path = (proof_dir / str(canonical.get("path") or "")).resolve()
+        try:
+            path.relative_to(proof_dir)
+        except ValueError:
+            errors.append({"reason": "unsafe_artifact", "detail": "canonical path escapes proof"})
+        else:
+            if not path.is_file() or not model_hash(canonical.get("sha256")):
+                errors.append({"reason": "artifact", "detail": "canonical artifact missing or hash malformed"})
+            elif _hash_file(path) != canonical.get("sha256"):
+                errors.append({"reason": "artifact_hash", "detail": "canonical artifact bytes changed"})
+    if not checks.get("checks"):
+        errors.append({"reason": "checks", "detail": "no checks registered"})
+    return errors
+
+
+def model_hash(value: Any) -> bool:
+    return isinstance(value, str) and bool(re.match(r"^sha256:[0-9a-f]{64}$", value))
+
+
 def replay_proof(proof_dir: str | Path, bundle_dir: str | Path) -> Dict[str, Any]:
     proof_dir = Path(proof_dir).resolve()
     bundle_dir = Path(bundle_dir).resolve()
+    structure_errors = _proof_structure_errors(proof_dir)
+    if structure_errors:
+        return {"status": "INDETERMINATE", "output_match": False,
+                "mismatches": structure_errors, "proof_mutated": False}
     replay = json.loads((proof_dir / "replay" / "manifest.json").read_text(encoding="utf-8"))
     mismatches = []
     for item in replay.get("inputs") or []:

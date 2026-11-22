@@ -22,7 +22,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import bill_candidate as bc, browser, catalog as catalog_mod, close as close_mod, ingest as ingest_mod, reconcile as recon_mod, report as report_mod
+from . import bill_candidate as bc, browser, catalog as catalog_mod, close as close_mod, ingest as ingest_mod, reconcile as recon_mod, report as report_mod, reproduce as reproduce_mod
 from .llm import LLMClient, LLMError
 from .model import LedgerError, PricingPolicy
 from .store import LedgerStore
@@ -820,6 +820,57 @@ def _usage_summary(payload, paths, diff):
     return "\n".join(lines).rstrip() + "\n"
 
 
+def cmd_reproduce(args):
+    if args.reproduce_command == "build":
+        result = reproduce_mod.build_bundle(
+            [Path(item) for item in args.input], period=args.period,
+            rule_map_path=Path(args.rule_map), out_dir=Path(args.out),
+            identity_map_path=Path(args.identity_map) if args.identity_map else None,
+            closed_at=args.closed_at, previous_revision=args.previous_revision,
+            overwrite=args.overwrite, data_classification=args.data_classification,
+            sharing_approved_by=args.sharing_approved_by)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+        manifest = result["manifest"]
+        print("\n".join([
+            "# 重放验收包 %s" % manifest["period"]["from"][:7],
+            "",
+            "- 输出：%s" % result["out"],
+            "- input_fingerprint：%s" % manifest["input_fingerprint"],
+            "- revision：%s" % manifest["revision_id"],
+            "- RuleMap：%s（%s）"
+            % (manifest["rule_map"]["hash"],
+               "已批准" if manifest["rule_map"]["approved"] else "未批准，金额不可作为计费依据"),
+            "- 身份映射：%d 条可支撑尝试级复核，%d 条缺项，%d 条悬空引用"
+            % (manifest["identity"]["complete_for_attempt"],
+               manifest["identity"]["unmatched_count"],
+               manifest["identity"]["dangling_count"]),
+            "- 下一步：`%s`" % manifest["verify_command"],
+            "",
+        ]))
+        return
+    if args.reproduce_command == "publish":
+        result = reproduce_mod.publish_bundle(
+            Path(args.path), Path(args.out), approved_by=args.by)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print("公开重放包：%s（%s）" % (result["out"], result["verification"]["verdict"]))
+            print("公开副本已清理原始路径；Delivery 仍保持 UNKNOWN，买方决定不由工具代签。")
+        return
+    result = reproduce_mod.verify_bundle(Path(args.path))
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print("verdict: %s" % result["verdict"])
+        for check in result["checks"]:
+            if not check["ok"]:
+                print("- %s: %s" % (check["name"], check.get("detail") or "failed"))
+    if result["verdict"] != "PASS":
+        sys.exit(2)
+
+
 def cmd_alloc_check(args):
     from . import allocation_policy as alloc
     policy = alloc.load_policy(Path(args.policy))
@@ -1588,6 +1639,44 @@ def build_parser():
     sp.add_argument("--run", required=True, help="evaluation-run.json")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_acceptance_calibrate)
+
+    sp = sub.add_parser(
+        "reproduce",
+        help="第三方可复核的重放验收包：输入副本、身份映射、差异分类与自行复核")
+    reproduce_sub = sp.add_subparsers(dest="reproduce_command", required=True)
+    sp = reproduce_sub.add_parser(
+        "build", help="打包重放验收包；输入先复制进包内，不读原始位置")
+    sp.add_argument("--input", action="append", required=True, metavar="FILE",
+                    help="事件文件 .jsonl/.json/.csv，可重复")
+    sp.add_argument("--period", required=True, help="账期 YYYY-MM")
+    sp.add_argument("--rule-map", required=True,
+                    help="已批准 verovo.usage-rule-map/1 JSON")
+    sp.add_argument("--out", required=True, help="输出目录（建议为空目录）")
+    sp.add_argument("--identity-map", default="",
+                    help="可选 {transaction_id: {...}} 身份映射文件")
+    sp.add_argument("--closed-at", default="", help="关账时间 ISO 8601（含时区）")
+    sp.add_argument("--previous-revision", default="", help="上一版 revision_id")
+    sp.add_argument("--overwrite", action="store_true",
+                    help="允许写入非空目录；会覆盖同名文件")
+    sp.add_argument("--data-classification", default="confidential",
+                    choices=list(reproduce_mod.DATA_CLASSIFICATIONS),
+                    help="默认 confidential；公开仅用 synthetic 或已授权 public-redacted")
+    sp.add_argument("--sharing-approved-by", default="",
+                    help="public-redacted 必需的具名脱敏发布批准人")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_reproduce)
+    sp = reproduce_sub.add_parser(
+        "verify", help="只读复核：校验哈希并重跑重放；PASS/FAIL/UNPROVEN")
+    sp.add_argument("path", help="验收包目录")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_reproduce)
+    sp = reproduce_sub.add_parser(
+        "publish", help="发布 synthetic/public-redacted 重放包；不上传，只写本地目录")
+    sp.add_argument("path", help="已通过 verify 的私有重放包")
+    sp.add_argument("--out", required=True, help="为空的公开副本目录")
+    sp.add_argument("--by", required=True, help="具名发布人；public-redacted 须匹配脱敏批准人")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_reproduce)
     return p
 
 

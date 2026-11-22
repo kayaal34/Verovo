@@ -10,16 +10,35 @@ from .model import LedgerError, SourceDocument
 from .store import LedgerStore
 
 MAX_FILE_BYTES = 20 * 1024 * 1024
+# 业务优先：上限可调，不因默认值直接挡住一整个账期的导入。
+IMPORT_LIMIT_ENV = "VEROVO_MAX_IMPORT_MB"
+
+
+def _max_file_bytes():
+    raw = os.environ.get(IMPORT_LIMIT_ENV, "").strip()
+    if raw:
+        try:
+            configured = int(float(raw) * 1024 * 1024)
+        except ValueError:
+            configured = 0
+        if configured > 0:
+            return configured
+    return MAX_FILE_BYTES
 
 
 def read_and_hash(path):
+    limit = _max_file_bytes()
     size = os.path.getsize(path)
-    if size > MAX_FILE_BYTES:
-        raise LedgerError("file exceeds %d-byte import limit" % MAX_FILE_BYTES)
+    if size > limit:
+        raise LedgerError(
+            "file exceeds %d-byte import limit; split it by period or set %s to raise the cap"
+            % (limit, IMPORT_LIMIT_ENV))
     with open(path, "rb") as f:
-        raw = f.read(MAX_FILE_BYTES + 1)
-    if len(raw) > MAX_FILE_BYTES:
-        raise LedgerError("file exceeds import limit")
+        raw = f.read(limit + 1)
+    if len(raw) > limit:
+        raise LedgerError(
+            "file exceeds %d-byte import limit; split it by period or set %s to raise the cap"
+            % (limit, IMPORT_LIMIT_ENV))
     try:
         text = raw.decode("utf-8-sig", errors="strict")
     except UnicodeDecodeError as exc:

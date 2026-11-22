@@ -48,7 +48,7 @@ class ProofExportTests(unittest.TestCase):
         self.assertEqual("PASS", by_id["canonical-artifact"]["status"])
         self.assertEqual("P1", by_id["canonical-artifact"]["level"])
         self.assertEqual("PASS", by_id["rule-repriced:seat-fee"]["status"])
-        self.assertEqual("P3", by_id["rule-repriced:seat-fee"]["level"])
+        self.assertEqual("P1", by_id["rule-repriced:seat-fee"]["level"])
         self.assertEqual("INDETERMINATE", by_id["invoice-reconciled:seat-fee"]["status"])
         self.assertEqual("P2", by_id["invoice-reconciled:seat-fee"]["level"])
         self.assertEqual("PASS", by_id["delivery-accepted:buyer-accept-t1"]["status"])
@@ -87,6 +87,43 @@ class ProofExportTests(unittest.TestCase):
         self.assertEqual(semantic_fingerprint(first), semantic_fingerprint(second))
         second["case"]["usage"][0]["quantity"] = "999999"
         self.assertNotEqual(semantic_fingerprint(first), semantic_fingerprint(second))
+
+    def test_driver_change_marks_old_proof_expired(self):
+        self.assertEqual(self._export().returncode, 0)
+        drivers = self.bundle / "drivers.csv"
+        drivers.write_text(drivers.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        completed = self._run("proof", "replay", str(self.out), "--bundle", str(self.bundle))
+        self.assertEqual(1, completed.returncode)
+        self.assertEqual("EXPIRED", json.loads(completed.stdout)["status"])
+
+    def test_public_redacted_canonical_export_requires_a_real_projection(self):
+        completed = self._run("proof", "export", "--bundle", str(self.bundle), "--out", str(self.out),
+                              "--by", "proof-reviewer", "--classification", "public-redacted")
+        self.assertEqual(2, completed.returncode)
+        self.assertFalse(self.out.exists())
+
+    def test_contract_approved_by_is_actual_reviewer_not_buyer_name(self):
+        self.assertEqual(self._export().returncode, 0)
+        contract = json.loads((self.out / "contract.json").read_text(encoding="utf-8"))
+        self.assertEqual("proof-reviewer", contract["approved_by"])
+
+    def test_tampered_canonical_artifact_cannot_replay_pass(self):
+        self.assertEqual(self._export().returncode, 0)
+        artifact = self.out / "artifacts/canonical.json"
+        payload = json.loads(artifact.read_text(encoding="utf-8"))
+        payload["case_id"] = "tampered"
+        artifact.write_text(json.dumps(payload), encoding="utf-8")
+        completed = self._run("proof", "replay", str(self.out), "--bundle", str(self.bundle))
+        self.assertEqual(1, completed.returncode)
+        self.assertEqual("INDETERMINATE", json.loads(completed.stdout)["status"])
+
+    def test_p3_waits_for_independent_review(self):
+        self.assertEqual(self._export().returncode, 0)
+        checks = self._checks()
+        by_id = {item["check_id"]: item for item in checks}
+        self.assertEqual("P1", by_id["rule-repriced:seat-fee"]["level"])
+        self.assertEqual("PASS", by_id["rule-repriced:seat-fee"]["status"])
+        self.assertEqual("UNCHECKED", by_id["independent-review:rule-repriced"]["status"])
 
     def test_existing_output_is_not_overwritten(self):
         self.out.mkdir()

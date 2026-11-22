@@ -97,6 +97,7 @@ Reconciliation → Delivery Assessment → Buyer Decision — map each step to a
 [docs/review-method/buyer-review-stages.md](docs/review-method/buyer-review-stages.md).
 
 [View the synthetic report](https://roy-tong.github.io/Verovo/examples/buyer-review.html).
+[Replay a synthetic period and inspect its public proof template](https://roy-tong.github.io/Verovo/examples/replayable-period.html).
 Agent hosts can call the same review read-only via MCP (`verovo-mcp`: `verovo_review`,
 `verovo_review_template`, `verovo_recount`, `verovo_invoice_intake`, `verovo_period_intake`;
 no write or submit actions exposed).

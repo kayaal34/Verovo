@@ -86,7 +86,9 @@ _GUIDANCE: Dict[str, Tuple[str, str, str]] = {
     "RATE_LIMITED": (
         "nothing; this is an external throttle",
         "the call was refused before any business change",
-        "wait for the stated cooldown, then retry the same command",
+        "wait for the stated cooldown, reduce the request cadence (space calls, send "
+        "smaller batches, avoid retrying inside the cooldown window), then retry the "
+        "same command",
     ),
     "ARTIFACT_PARTIAL": (
         "a complete artefact set for this step",
