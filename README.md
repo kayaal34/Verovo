@@ -20,7 +20,7 @@ For teams buying or operating AI services, the output is a reproducible economic
 </p>
 
 [Website](https://roy-tong.github.io/Verovo/) · [中文](README.zh-CN.md) ·
-[Product definition](docs/product-definition.md) · [Buyer task guide](docs/buyer-review.md)
+[Product definition](docs/product-definition.md) · [Buyer task guide](docs/buyer-review.md) · [OVO Discord](https://discord.gg/UqrM8MCXb) · [X / @elliwoodtong](https://x.com/elliwoodtong)
 
 ## OVO family: Prove Anything
 

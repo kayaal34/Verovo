@@ -20,7 +20,7 @@ verovo review --sample --html buyer-review.html --json buyer-review.json
 </p>
 
 [官网](https://roy-tong.github.io/Verovo/) · [English](README.md) ·
-[产品定义](docs/product-definition.md) · [核验任务指南](docs/buyer-review.md)
+[产品定义](docs/product-definition.md) · [核验任务指南](docs/buyer-review.md) · [OVO Discord](https://discord.gg/UqrM8MCXb) · [X / @elliwoodtong](https://x.com/elliwoodtong)
 
 ## OVO 家族：Prove Anything
 
