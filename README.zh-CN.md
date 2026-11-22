@@ -15,6 +15,10 @@
 [官网](https://roy-tong.github.io/Verovo/) · [English](README.md) ·
 [产品定义](docs/product-definition.md) · [核验任务指南](docs/buyer-review.md)
 
+## OVO 家族：Prove Anything
+
+Verovo 仍然聚焦买方费用与交付核验。**Prove Anything** 是 OVO 族级结果证明协议候选：Agent 说“完成了”，仍需独立复核。**Verified Capability Factory（VCF）** 是受阶段门约束的研究候选，不是 Verovo 当前依赖。Verovo 未来可以把证据导出为族级 Proof Bundle，但不会改成泛化验证平台；费用、交付、覆盖和买方决定继续分开。
+
 ## 这个仓库从哪来
 
 它始于一次审计：把约 110 个 AI 用量/成本工具，喂进一份手算得出来的合成样本，再用工具自己的解析器跑一遍。65 条以上可复核的发现；大多数工具是对的，错的那批集中在五类（按内容块重复累加、重复事件、缓存计价语义、价表漂移、会话恢复/分叉丢失）。

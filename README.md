@@ -15,6 +15,10 @@ For teams buying or operating AI services, the output is a reproducible economic
 [Website](https://roy-tong.github.io/Verovo/) · [中文](README.zh-CN.md) ·
 [Product definition](docs/product-definition.md) · [Buyer task guide](docs/buyer-review.md)
 
+## OVO family: Prove Anything
+
+Verovo remains focused on buyer-side charge and delivery review. **Prove Anything** is the OVO family-level result-proof protocol candidate: an agent saying “done” is a claim to verify, not proof by itself. **Verified Capability Factory (VCF)** is a gated research candidate, not a Verovo dependency. Verovo can export evidence into a future family Proof Bundle, but it is not becoming a generalized verification platform; charges, delivery, coverage and buyer decisions remain separate.
+
 ## Where this came from
 
 This repository grew out of an audit: ~110 AI usage/cost tools were fed a
