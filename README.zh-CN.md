@@ -17,7 +17,14 @@
 
 ## OVO 家族：Prove Anything
 
-Verovo 仍然聚焦买方费用与交付核验。**Prove Anything** 是 OVO 族级结果证明协议候选：Agent 说“完成了”，仍需独立复核。**Verified Capability Factory（VCF）** 是受阶段门约束的研究候选，不是 Verovo 当前依赖。Verovo 未来可以把证据导出为族级 Proof Bundle，但不会改成泛化验证平台；费用、交付、覆盖和买方决定继续分开。
+Verovo 仍然聚焦买方费用与交付核验。**Prove Anything** 是 OVO 族级结果证明协议候选：Agent 说“完成了”，仍需独立复核。**Verified Capability Factory（VCF）** 是受阶段门约束的研究候选，不是 Verovo 当前依赖。Verovo 不会改成泛化验证平台；费用、交付、覆盖和买方决定继续分开。
+
+```bash
+verovo proof export --bundle ./period --out ./proof-bundle --by "proof-reviewer"
+verovo proof replay ./proof-bundle --bundle ./period
+```
+
+重放会逐项核对来源哈希并重新计算 canonical 输出。输入变化返回 `EXPIRED`，重算不一致返回 `FAIL`。两个命令都不修改账期或证明，也不授权付款或验收。
 
 ## 这个仓库从哪来
 

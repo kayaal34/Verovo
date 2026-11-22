@@ -7,6 +7,7 @@ OVO family boundary: Prove Anything is the family-level result-proof protocol ca
 ## Start here
 
 - [Website](https://roy-tong.github.io/Verovo/): overview and local quickstart
+- Period proof: `verovo proof export --bundle PERIOD --out NEW_DIR --by NAME`, then `verovo proof replay NEW_DIR --bundle PERIOD`; replay verifies input hashes and recomputes canonical output, returns EXPIRED on changed inputs, and never modifies either directory.
 - [Services](https://roy-tong.github.io/Verovo/services.html): free measurement-run scope, inputs and turnaround
 - [FAQ（中文）](https://roy-tong.github.io/Verovo/faq.html): Chinese answers to common queries (AI bill checking, API cost recount, open-source reconciliation tools, AI-support billing disputes) with sourced numbers; FAQPage structured data
 - [Tool bill coverage](https://roy-tong.github.io/Verovo/tools.html): cataloged tool billing models for buyer tasks; provider work is a conditional extension. Cataloged is not live-validated.

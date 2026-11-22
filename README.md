@@ -17,7 +17,14 @@ For teams buying or operating AI services, the output is a reproducible economic
 
 ## OVO family: Prove Anything
 
-Verovo remains focused on buyer-side charge and delivery review. **Prove Anything** is the OVO family-level result-proof protocol candidate: an agent saying “done” is a claim to verify, not proof by itself. **Verified Capability Factory (VCF)** is a gated research candidate, not a Verovo dependency. Verovo can export evidence into a future family Proof Bundle, but it is not becoming a generalized verification platform; charges, delivery, coverage and buyer decisions remain separate.
+Verovo remains focused on buyer-side charge and delivery review. **Prove Anything** is the OVO family-level result-proof protocol candidate: an agent saying “done” is a claim to verify, not proof by itself. **Verified Capability Factory (VCF)** is a gated research candidate, not a Verovo dependency. Verovo is not becoming a generalized verification platform; charges, delivery, coverage and buyer decisions remain separate.
+
+```bash
+verovo proof export --bundle ./period --out ./proof-bundle --by "proof-reviewer"
+verovo proof replay ./proof-bundle --bundle ./period
+```
+
+Replay rechecks every source hash and recomputes the canonical output. Changed inputs return `EXPIRED`; a recomputed mismatch returns `FAIL`. Neither command modifies the period or proof, and neither authorizes payment or acceptance.
 
 ## Where this came from
 

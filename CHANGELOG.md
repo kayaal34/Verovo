@@ -1,4 +1,11 @@
+## Unreleased
+
+### Added
+
+- **`verovo proof export --bundle PERIOD --out NEW_DIR --by NAME`** exports canonical finance as a Prove Anything bundle with separate P1/P2/P3/P4 checks. **`verovo proof replay NEW_DIR --bundle PERIOD`** rechecks every source hash and recomputes canonical output; changed inputs return EXPIRED, output drift returns FAIL, and neither command mutates source or proof directories.
+
 ## v0.15.4 - 2026-11-20
+
 
 Reading a Growovo handoff as evidence, not as a booking.
 
