@@ -46,3 +46,5 @@ Summary counts support interpretation, not guaranteed root-cause diagnosis. Core
 - [Lab](https://github.com/roy-tong/verovo/blob/main/lab/README.md): existing experimental toolkit
 - [Contributing](https://github.com/roy-tong/verovo/blob/main/CONTRIBUTING.md): contribution and AI-use rules
 - [Agent instructions](https://github.com/roy-tong/verovo/blob/main/AGENTS.md): invariants and required checks
+
+- [Recompute a synthetic billing period and inspect missing delivery evidence](https://roy-tong.github.io/Verovo/examples/replayable-period.html)

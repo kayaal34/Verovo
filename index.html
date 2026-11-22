@@ -81,17 +81,18 @@
   <section class="hero" aria-label="Introduction">
     <div class="hero-grid">
       <div class="hero-copy">
-        <p class="eyebrow reveal">For teams buying AI services — business, engineering and finance</p>
+        <p class="eyebrow reveal">Generate Anything. Prove What Matters. · For teams buying AI services</p>
         <h1 class="reveal d1">Review one supplier.<br><em>Close one billing period.</em></h1>
         <p class="lede reveal d2">Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.</p>
         <p>Connect usage, financial records and business outcomes. Calculate task costs and cost per verified success with the local <code>economics</code> command. <a href="https://github.com/roy-tong/Verovo/blob/main/docs/task-economics.md">Try task economics →</a></p>
         <div class="hero-actions reveal d4">
           <a class="btn btn-primary" href="first-look.html#contact">Discuss your charge or delivery task</a>
           <a class="btn btn-ghost" href="examples/buyer-review.html">See a buyer review</a>
+          <a class="btn btn-ghost" href="examples/replayable-period.html">Replay a synthetic period</a>
         </div>
         <p class="note">Local tools support selected recounts and explicit charge/delivery criteria. Enterprise review scope and fees are under validation, with no recovery guarantee. <a href="first-look.html">See the buyer workflow and limits</a>.</p>
         <p class="note">Working on local agent logs instead? Use the <a href="#how">free developer tools</a> or the <a href="services.html">free measurement runs</a>. 中文入口：<a href="faq.html">常见问题（账单核对与免费任务）</a>。</p>
-        <p class="note reveal d5" style="margin-top:14px"><strong>CLI v0.15.1</strong> on <a href="https://github.com/roy-tong/Verovo/releases/latest" target="_blank" rel="noopener">GitHub</a> and <a href="https://pypi.org/project/verovo/" target="_blank" rel="noopener">PyPI</a>. <a href="https://www.npmjs.com/package/@verovo/mcp" target="_blank" rel="noopener">SDK v0.3.0</a>. 761 local tests verified on 2026-11-04; the complex fixture is synthetic. Customer payment and repeat use remain unverified.</p>
+        <p class="note reveal d5" style="margin-top:14px"><strong>CLI v0.16.0</strong> on <a href="https://github.com/roy-tong/Verovo/releases/latest" target="_blank" rel="noopener">GitHub</a> and <a href="https://pypi.org/project/verovo/" target="_blank" rel="noopener">PyPI</a>. <a href="https://www.npmjs.com/package/@verovo/mcp" target="_blank" rel="noopener">SDK v0.3.0</a>. 1,037 local tests verified on 2026-11-22; the complex fixture is synthetic. Customer payment and repeat use remain unverified.</p>
       </div>
 
       <!-- Recount console: real output of `verovo recount` on a 5-row synthetic sample -->
@@ -126,13 +127,19 @@
     <div class="status-strip reveal d5" role="list" aria-label="Project status">
       <div class="status" role="listitem"><span class="status-k">Open source</span><span class="status-v ok">MIT</span></div>
       <div class="status" role="listitem"><span class="status-k">Spec</span><span class="status-v spec" data-status="spec">Draft 0.4.5</span></div>
-      <div class="status" role="listitem"><span class="status-k">CLI</span><span class="status-v ok">v0.15.1 · PyPI</span></div>
+      <div class="status" role="listitem"><span class="status-k">CLI</span><span class="status-v ok">v0.16.0 · PyPI</span></div>
       <div class="status" role="listitem"><span class="status-k">SDK</span><span class="status-v" data-status="sdk">v0.3.0</span></div>
       <div class="status" role="listitem"><span class="status-k">Tool bills</span><span class="status-v spec">26 cataloged · 0 live-validated</span></div>
       <div class="status" role="listitem"><span class="status-k">Ecosystem audit</span><span class="status-v ok">110 tools · September report</span></div>
       <div class="status" role="listitem"><span class="status-k">Upstream fixes</span><span class="status-v ok">See dated claims index</span></div>
     </div>
   </section>
+
+  <section class="section section-panel" id="family" aria-label="OVO family and Prove Anything"><div class="wrap">
+  <h2 class="reveal">An agent saying “done” still needs proof.</h2>
+  <p class="body-secondary reveal">Prove Anything is OVO’s family-level result-proof protocol candidate: task contracts, execution traces, independent checks, unknowns and replay instructions travel as a reviewable Proof Bundle. Verovo remains focused on one buyer’s charges and delivery for one period; it is not becoming a generalized verification platform.</p>
+  <p class="note">Local period Proof Bundle export and replay are available through <code>verovo proof export</code> and <code>verovo proof replay</code>. Verified Capability Factory (VCF) is a gated research candidate, not a Verovo dependency. Charges, delivery, coverage and the buyer’s business decision remain separate.</p>
+  </div></section>
 
   <section class="section" id="whynow" aria-label="Buyer decisions"><div class="wrap">
 <h2 class="reveal">A billing question and a renewal decision need different evidence.</h2>
@@ -376,7 +383,7 @@ verovo validate summary.json</pre><p>Auto-discovery prefers Codex when both runt
           </ul>
           <div class="spec-chips reveal d4" style="margin-top:14px">
             <span class="chip"><span data-status="sdkTests">21</span>&nbsp;SDK tests</span>
-            <span class="chip">761 local tests · 2026-11-04</span>
+            <span class="chip">1,037 local tests · 2026-11-22</span>
             <span class="chip">Conformance vectors · <span data-status="conformance">Passing</span></span>
             <span class="chip">No cloud required</span>
           </div>
