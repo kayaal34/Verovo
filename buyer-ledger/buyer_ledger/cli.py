@@ -22,7 +22,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import bill_candidate as bc, browser, catalog as catalog_mod, close as close_mod, ingest as ingest_mod, reconcile as recon_mod, report as report_mod, reproduce as reproduce_mod
+from . import bill_candidate as bc, browser, catalog as catalog_mod, close as close_mod, ingest as ingest_mod, reconcile as recon_mod, report as report_mod, reproduce as reproduce_mod, reproduce_proof
 from .llm import LLMClient, LLMError
 from .model import LedgerError, PricingPolicy
 from .store import LedgerStore
@@ -859,6 +859,13 @@ def cmd_reproduce(args):
             print("公开重放包：%s（%s）" % (result["out"], result["verification"]["verdict"]))
             print("公开副本已清理原始路径；Delivery 仍保持 UNKNOWN，买方决定不由工具代签。")
         return
+    if args.reproduce_command == "proof":
+        result = reproduce_proof.export_proof(Path(args.path), Path(args.out), by=args.by)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        else:
+            print("Prove Anything 投影：%s；源包未修改，外部结果仍未观察。" % result["out"])
+        return
     result = reproduce_mod.verify_bundle(Path(args.path))
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -1675,6 +1682,13 @@ def build_parser():
     sp.add_argument("path", help="已通过 verify 的私有重放包")
     sp.add_argument("--out", required=True, help="为空的公开副本目录")
     sp.add_argument("--by", required=True, help="具名发布人；public-redacted 须匹配脱敏批准人")
+    sp.add_argument("--json", action="store_true")
+    sp.set_defaults(func=cmd_reproduce)
+    sp = reproduce_sub.add_parser(
+        "proof", help="导出 Prove Anything 只读投影；不复制私密输入，不执行外部动作")
+    sp.add_argument("path", help="重放包目录")
+    sp.add_argument("--out", required=True, help="新的证明包目录")
+    sp.add_argument("--by", required=True, help="具名证明审核人")
     sp.add_argument("--json", action="store_true")
     sp.set_defaults(func=cmd_reproduce)
     return p

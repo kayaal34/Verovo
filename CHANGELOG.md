@@ -2,6 +2,8 @@
 
 ### Added
 
+- **`python3 -m buyer_ledger reproduce proof BUNDLE --out NEW_DIR --by NAME`** projects a replay bundle into a read-only Prove Anything package. It writes whitelisted manifest/replay projections without source paths or row-level subjects, preserves the source verdict, marks external results UNCHECKED and replay UNAVAILABLE when private inputs are not copied, and never mutates the source or performs external actions.
+
 - **`verovo proof export --bundle PERIOD --out NEW_DIR --by NAME`** exports canonical finance as a Prove Anything bundle with separate P1/P2/P3/P4 checks. **`verovo proof replay NEW_DIR --bundle PERIOD`** rechecks every source hash and recomputes canonical output; changed inputs return EXPIRED, output drift returns FAIL, and neither command mutates source or proof directories. The semantic replay fingerprint excludes only the volatile `intake_report.generated_at` clock; every financial field remains hashed, and a business-value mutation regression proves drift is still rejected.
 
 ## v0.15.4 - 2026-11-20

@@ -73,7 +73,11 @@ $B reproduce verify /tmp/verovo-private-period
 $B reproduce publish /tmp/verovo-private-period \
   --out /tmp/verovo-public-period --by synthetic-fixture-reviewer
 $B reproduce verify /tmp/verovo-public-period
+$B reproduce proof /tmp/verovo-private-period \
+  --out /tmp/verovo-proof --by proof-reviewer
 ```
+
+`reproduce proof` 是现有重放包的 Prove Anything 只读投影：只输出白名单的 manifest 与聚合重放字段，不复制私密输入、原始来源路径或逐行主体；源包保持字节不变，外部结果保持 UNCHECKED。投影可用 `python3 -m ovo_acceptance proof /tmp/verovo-proof` 复核；缺自包含输入时 replay 保持 UNAVAILABLE。
 
 默认 `data_classification=confidential`，不能直接公开。只有 `synthetic` 或打包时已由 `--sharing-approved-by` 具名批准的 `public-redacted` 包可生成公开副本；脱敏包的发布人必须与批准人一致。`publish` 只写本地目录、不上传，公开副本清除原始绝对路径，生成 `template.json`、四步 `index.html` 和 `public-share.json`。重放 PASS 不等于交付验收：Delivery 保持 UNKNOWN，买方 Decide 保持 UNPROVEN；模板新任务默认私有。
 

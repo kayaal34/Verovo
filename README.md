@@ -6,6 +6,13 @@
 
 Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.
 
+```bash
+python3 -m pip install verovo
+verovo review --sample --html buyer-review.html --json buyer-review.json
+```
+
+The local synthetic example separates charges, delivery and missing evidence. [Inspect the report](https://roy-tong.github.io/Verovo/examples/buyer-review.html) or [replay a synthetic period](https://roy-tong.github.io/Verovo/examples/replayable-period.html); neither is a customer result.
+
 For teams buying or operating AI services, the output is a reproducible economic record: task costs, allocation rules, verified results and explicit evidence gaps. The local `economics` command runs on an explicit case, and `intake` assembles that case from a local billing-period bundle; automated optimization and insurance remain future work. [Feature status and build/integrate decisions](docs/feature-status.md).
 
 <p align="center">
@@ -24,7 +31,7 @@ verovo proof export --bundle ./period --out ./proof-bundle --by "proof-reviewer"
 verovo proof replay ./proof-bundle --bundle ./period
 ```
 
-Replay rechecks every source hash and recomputes the canonical output. Changed inputs return `EXPIRED`; a recomputed mismatch returns `FAIL`. Neither command modifies the period or proof, and neither authorizes payment or acceptance.
+Replay rechecks every source hash and recomputes the canonical output. Changed inputs return `EXPIRED`; a recomputed mismatch returns `FAIL`. Neither command modifies the period or proof, and neither authorizes payment or acceptance. Buyer Ledger also has a [self-contained replay fixture and portable proof projection](buyer-ledger/examples/replayable-period/README.md).
 
 ## Where this came from
 
