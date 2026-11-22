@@ -48,3 +48,6 @@ Summary counts support interpretation, not guaranteed root-cause diagnosis. Core
 - [Agent instructions](https://github.com/roy-tong/verovo/blob/main/AGENTS.md): invariants and required checks
 
 - [Recompute a synthetic billing period and inspect missing delivery evidence](https://roy-tong.github.io/Verovo/examples/replayable-period.html)
+
+- [OVO Discord community](https://discord.gg/UqrM8MCXb)
+- [OVO product updates on X](https://x.com/elliwoodtong)
