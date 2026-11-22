@@ -27,6 +27,20 @@ BOTWALL_TEXTS = ("checking your browser", "unusual traffic", "verify you are hum
 DEFAULT_PROFILE_ROOT = os.path.join(os.path.expanduser("~"), ".verovo", "profiles")
 DEFAULT_AUDIT_ROOT = os.path.join(os.path.expanduser("~"), ".verovo", "audit")
 DEFAULT_CDP_ROOT = os.path.join(os.path.expanduser("~"), ".verovo", "cdp")
+DOWNLOAD_LIMIT_ENV = "VEROVO_MAX_DOWNLOAD_MB"
+MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024
+
+
+def _max_download_bytes():
+    raw = os.environ.get(DOWNLOAD_LIMIT_ENV, "").strip()
+    if raw:
+        try:
+            configured = int(float(raw) * 1024 * 1024)
+        except ValueError:
+            configured = 0
+        if configured > 0:
+            return configured
+    return MAX_DOWNLOAD_BYTES
 
 
 class RecipeError(ValueError):
@@ -404,8 +418,11 @@ def _execute_recipe(page, recipe, period, export_dir, record, provenance,
                 raise Handoff("download target escaped export directory")
             download.save_as(target)
             os.chmod(target, 0o600)
-            if os.path.getsize(target) > 20 * 1024 * 1024:
-                raise Handoff("download exceeds 20 MiB safety limit")
+            download_limit = _max_download_bytes()
+            if os.path.getsize(target) > download_limit:
+                raise Handoff(
+                    "download exceeds the %d-byte safety limit; set %s to raise it, "
+                    "or import the file manually" % (download_limit, DOWNLOAD_LIMIT_ENV))
             downloads.append(target)
             document_id = ""
             if on_document:

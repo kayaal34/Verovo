@@ -60,6 +60,27 @@ python3 reconcile.py   # 输出 reconciliation.csv/.json + line-checks.csv + sam
 - 这不是产品完整功能，是“把发票、成本导出、用量导出对到分”的最小可复现件；
   真实账期适配、PDF/XLSX、席位/承诺/汇率仍需按客户材料做。
 
+## 可重放账期与安全公开副本
+
+`reproduce` 把事件、已批准规则、身份映射、差异分类和重放结果收进一个目录；`verify` 校验文件哈希并重跑输入指纹、revision、计数和指标。公开演示见 [examples/replayable-period](examples/replayable-period)。
+
+```bash
+B="python3 -m buyer_ledger"
+$B reproduce build --input examples/replayable-period/events.jsonl \
+  --period 2026-10 --rule-map examples/replayable-period/rule-map.json \
+  --out /tmp/verovo-private-period --data-classification synthetic
+$B reproduce verify /tmp/verovo-private-period
+$B reproduce publish /tmp/verovo-private-period \
+  --out /tmp/verovo-public-period --by synthetic-fixture-reviewer
+$B reproduce verify /tmp/verovo-public-period
+$B reproduce proof /tmp/verovo-private-period \
+  --out /tmp/verovo-proof --by proof-reviewer
+```
+
+`reproduce proof` 是现有重放包的 Prove Anything 只读投影：只输出白名单的 manifest 与聚合重放字段，不复制私密输入、原始来源路径或逐行主体；源包保持字节不变，外部结果保持 UNCHECKED。投影可用 `python3 -m ovo_acceptance proof /tmp/verovo-proof` 复核；缺自包含输入时 replay 保持 UNAVAILABLE。
+
+默认 `data_classification=confidential`，不能直接公开。只有 `synthetic` 或打包时已由 `--sharing-approved-by` 具名批准的 `public-redacted` 包可生成公开副本；脱敏包的发布人必须与批准人一致。`publish` 只写本地目录、不上传，公开副本清除原始绝对路径，生成 `template.json`、四步 `index.html` 和 `public-share.json`。重放 PASS 不等于交付验收：Delivery 保持 UNKNOWN，买方 Decide 保持 UNPROVEN；模板新任务默认私有。
+
 ## 账单截图 / 可见文本候选（V-08）
 
 可选入口不依赖 `invoice2data`：本地文本、macOS Vision 截图 OCR 或调用方提供的
@@ -264,7 +285,7 @@ Agent/程序边界：
 - 草案先经过 schema、真实表头和整份样例 dry-run，再存为 `pending`；必须显式 `rule approve` 才可重放。
 - 规则按 `provider + doc_type + tier + format fingerprint` 隔离，不能跨平台或跨资料类型误用。
 - 同版式后续重放不调用 LLM。重解析会核对文件哈希，源文件被替换后拒绝绑定到旧证据。
-- 支持 UTF-8 CSV/TSV，单文件上限 20 MiB；其他编码需先无损转换。总额行从映射的金额列校验，不再按字符串长度猜数字。
+- 支持 UTF-8 CSV/TSV，单文件默认上限 20 MiB（`VEROVO_MAX_IMPORT_MB` 可调高，超限时按账期拆分）；其他编码需先无损转换。总额行从映射的金额列校验，不再按字符串长度猜数字。
 
 ## 支持案例（公开计费研究，不是客户案例）
 

@@ -2,9 +2,12 @@
 
 > Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.
 
+OVO family boundary: Prove Anything is the family-level result-proof protocol candidate; an agent saying “done” remains a claim to verify. Verified Capability Factory is a gated research candidate, not a Verovo dependency. Verovo stays buyer-first and is not becoming a generalized verification platform; charges, delivery, coverage and buyer decisions remain separate.
+
 ## Start here
 
 - [Website](https://roy-tong.github.io/Verovo/): overview and local quickstart
+- Period proof: `verovo proof export --bundle PERIOD --out NEW_DIR --by NAME`, then `verovo proof replay NEW_DIR --bundle PERIOD`; replay verifies input hashes and recomputes canonical output, returns EXPIRED on changed inputs, and never modifies either directory.
 - [Services](https://roy-tong.github.io/Verovo/services.html): free measurement-run scope, inputs and turnaround
 - [FAQ（中文）](https://roy-tong.github.io/Verovo/faq.html): Chinese answers to common queries (AI bill checking, API cost recount, open-source reconciliation tools, AI-support billing disputes) with sourced numbers; FAQPage structured data
 - [Tool bill coverage](https://roy-tong.github.io/Verovo/tools.html): cataloged tool billing models for buyer tasks; provider work is a conditional extension. Cataloged is not live-validated.

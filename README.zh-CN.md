@@ -6,6 +6,13 @@
 
 把合同计费规则、账单、用量和交付记录放在一起，分别查看费用差异、交付是否达标和材料覆盖范围。供应商自认的交付仍需买方证据。签核后的报告绑定当时的记录，后补材料进入新修订。
 
+```bash
+python3 -m pip install verovo
+verovo review --sample --html buyer-review.html --json buyer-review.json
+```
+
+本地合成示例分别展示费用、交付和缺失证据。[查看核验报告](https://roy-tong.github.io/Verovo/examples/buyer-review.html)或[重放一个合成账期](https://roy-tong.github.io/Verovo/examples/replayable-period.html)；两者都不是客户结果。
+
 面向采购或运营 AI 服务的业务、工程和财务团队，交付可复算的经济账与待补证清单。本地 `economics` 支持按任务分摊费用。票据提取生成待审草稿，入账需核对规则与用量。[当前能力与技术取舍](docs/feature-status.md)。
 
 <p align="center">
@@ -14,6 +21,17 @@
 
 [官网](https://roy-tong.github.io/Verovo/) · [English](README.md) ·
 [产品定义](docs/product-definition.md) · [核验任务指南](docs/buyer-review.md)
+
+## OVO 家族：Prove Anything
+
+Verovo 仍然聚焦买方费用与交付核验。**Prove Anything** 是 OVO 族级结果证明协议候选：Agent 说“完成了”，仍需独立复核。**Verified Capability Factory（VCF）** 是受阶段门约束的研究候选，不是 Verovo 当前依赖。Verovo 不会改成泛化验证平台；费用、交付、覆盖和买方决定继续分开。
+
+```bash
+verovo proof export --bundle ./period --out ./proof-bundle --by "proof-reviewer"
+verovo proof replay ./proof-bundle --bundle ./period
+```
+
+重放会逐项核对来源哈希并重新计算 canonical 输出。输入变化返回 `EXPIRED`，重算不一致返回 `FAIL`。两个命令都不修改账期或证明，也不授权付款或验收。Buyer Ledger 另提供[可独立重放的账期样例与 Proof 投影](buyer-ledger/examples/replayable-period/README.md)。
 
 ## 这个仓库从哪来
 

@@ -1,0 +1,18 @@
+{
+  "schema": "verovo.usage-rule-map/1",
+  "rule_map_version": "synthetic-rm-1",
+  "approved_by": "synthetic-fixture-reviewer",
+  "approved_at": "2026-11-01T00:00:00Z",
+  "rules": [
+    {
+      "rule_id": "synthetic-count-rule",
+      "metric_code": "api_call",
+      "aggregate": "count",
+      "unit": "call",
+      "currency": "USD",
+      "unit_price": "0.01",
+      "price_version": "synthetic-price-1",
+      "valid_from": "2026-10-01"
+    }
+  ]
+}

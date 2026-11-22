@@ -63,6 +63,7 @@ from . import invoice_intake as invoice_mod
 from . import period_intake as period_mod
 from . import cost_drivers as drivers_mod
 from . import optimization as optimization_mod
+from . import proof_export as proof_mod
 # Conformance pack loaded lazily in cmd_conformance
 
 DEFAULT_DAYS = 7
@@ -1857,6 +1858,21 @@ def cmd_economics(args) -> int:
         return 2
 
 
+def cmd_proof(args) -> int:
+    try:
+        if args.proof_action == "export":
+            result = proof_mod.export_proof(
+                args.bundle, args.out, by=args.by or "", classification=args.classification)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
+        result = proof_mod.replay_proof(args.proof_dir, args.bundle)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["status"] == "PASS" else 1
+    except (proof_mod.ProofExportError, ValueError, OSError, json.JSONDecodeError) as exc:
+        print(json.dumps({"status": "error", "reason": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="verovo",
@@ -1867,6 +1883,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version",
                         version="verovo-healthcheck %s" % __version__)
     sub = parser.add_subparsers(dest="cmd")
+
+    p_proof = sub.add_parser("proof", help="export and replay a Prove Anything period Proof Bundle")
+    proof_sub = p_proof.add_subparsers(dest="proof_action", required=True)
+    p_proof_export = proof_sub.add_parser("export", help="export canonical period evidence without modifying sources")
+    p_proof_export.add_argument("--bundle", required=True, help="canonical period bundle with approved rule map")
+    p_proof_export.add_argument("--out", required=True, help="new proof directory; never overwritten")
+    p_proof_export.add_argument("--by", required=True, help="named proof reviewer")
+    p_proof_export.add_argument("--classification", choices=("private", "synthetic", "public-redacted"), default="private")
+    p_proof_export.set_defaults(func=cmd_proof)
+    p_proof_replay = proof_sub.add_parser("replay", help="recompute inputs and canonical output without modifying proof")
+    p_proof_replay.add_argument("proof_dir")
+    p_proof_replay.add_argument("--bundle", required=True, help="current period bundle to reconcile against proof")
+    p_proof_replay.set_defaults(func=cmd_proof)
 
     p_review = sub.add_parser("review", help="review buyer charges and delivery as separate conclusions")
     source = p_review.add_mutually_exclusive_group(required=True)

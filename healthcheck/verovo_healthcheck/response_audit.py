@@ -5,16 +5,31 @@ snapshot wins a conflict; no session or invoice total is inferred.
 """
 import hashlib
 import json
+import os
 from pathlib import Path
 
 USAGE_FIELDS = ('input_tokens', 'output_tokens', 'cache_read_input_tokens',
                 'cache_creation_input_tokens')
 MAX_FILE_BYTES = 400 * 1024 * 1024
+FILE_LIMIT_ENV = 'VEROVO_MAX_RESPONSE_AUDIT_MB'
+
+
+def _max_file_bytes():
+    raw = os.environ.get(FILE_LIMIT_ENV, '').strip()
+    if raw:
+        try:
+            configured = int(float(raw) * 1024 * 1024)
+        except ValueError:
+            configured = 0
+        if configured > 0:
+            return configured
+    return MAX_FILE_BYTES
 
 
 def audit(paths):
     groups = {}
     seen_files = set()
+    limit = _max_file_bytes()
     counts = dict(files=0, repeated_file_inputs=0, assistant_rows=0,
                   missing_response_id=0, invalid_rows=0, ignored_rows=0)
     for filename in paths:
@@ -24,16 +39,21 @@ def audit(paths):
         if identity in seen_files:
             counts['repeated_file_inputs'] += 1
             continue
-        if stat.st_size > MAX_FILE_BYTES:
-            raise ValueError('Input exceeds the 400 MiB per-file limit; use a bounded copy')
+        if stat.st_size > limit:
+            raise ValueError(
+                'Input exceeds the %d-byte per-file limit; split it by session or date, '
+                'or set %s to raise the cap' % (limit, FILE_LIMIT_ENV))
         seen_files.add(identity)
         counts['files'] += 1
         with path.open('rb') as stream:
             consumed = 0
             for raw in stream:
                 consumed += len(raw)
-                if consumed > MAX_FILE_BYTES:
-                    raise ValueError('Input grew beyond the per-file limit')
+                if consumed > limit:
+                    raise ValueError(
+                        'Input grew beyond the %d-byte per-file limit while reading; '
+                        'split it by session or date, or set %s to raise the cap'
+                        % (limit, FILE_LIMIT_ENV))
                 if not raw.strip():
                     continue
                 try:

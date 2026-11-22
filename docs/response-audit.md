@@ -11,7 +11,9 @@ Inputs are explicit JSONL files; nothing is auto-uploaded or rewritten. Each
 assistant `message.id` joins its observed usage snapshots. Reports use a SHA256
 of that ID, not prompts, responses or tool arguments. An ID hash can still link
 records across reports: review it before sharing. Duplicate input files are read
-once. Files over 400 MiB are rejected rather than silently truncated.
+once. Files over 400 MiB are rejected rather than silently truncated; set
+`VEROVO_MAX_RESPONSE_AUDIT_MB` to raise the cap, or split the file by session
+or date.
 
 - **OBSERVED**: the observed complete usage snapshots agree. This is not proof of
   complete coverage, final usage, a second execution, or correct billing.

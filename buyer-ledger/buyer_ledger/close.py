@@ -39,6 +39,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 from datetime import date, datetime, timedelta, timezone
@@ -65,6 +66,20 @@ RESOLVED_CONTROL_DOMAINS = ("vendor", "buyer")
 INVOICE_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".txt"}
 TABLE_SUFFIXES = {".csv", ".tsv", ".jsonl"}
 MAX_SOURCE_BYTES = 20 * 1024 * 1024
+# 业务优先：单文件默认上限可调，避免一个超限文件挡住整次闭环。
+SOURCE_LIMIT_ENV = "VEROVO_MAX_IMPORT_MB"
+
+
+def _max_source_bytes():
+    raw = os.environ.get(SOURCE_LIMIT_ENV, "").strip()
+    if raw:
+        try:
+            configured = int(float(raw) * 1024 * 1024)
+        except ValueError:
+            configured = 0
+        if configured > 0:
+            return configured
+    return MAX_SOURCE_BYTES
 
 # No close subcommand is a later-ticket stub anymore; V-04 implements the last
 # pair. The empty registry is kept as a machine-readable compatibility marker.
@@ -377,12 +392,14 @@ def _resolve_inside(bundle: Path, relative: str, what: str) -> Path:
 
 
 def _read_source(path: Path) -> str:
+    limit = _max_source_bytes()
     raw = path.read_bytes()
     if not raw.strip():
         raise CloseError("INPUT_REQUIRED", "%s is an empty file" % path.name)
-    if len(raw) > MAX_SOURCE_BYTES:
+    if len(raw) > limit:
         raise CloseError("INPUT_REQUIRED",
-                         "%s exceeds the %d-byte import limit" % (path.name, MAX_SOURCE_BYTES))
+                         "%s exceeds the %d-byte import limit; split it by period or set %s "
+                         "to raise the cap" % (path.name, limit, SOURCE_LIMIT_ENV))
     try:
         return raw.decode("utf-8-sig", errors="strict")
     except UnicodeDecodeError as exc:
@@ -621,10 +638,16 @@ def ingest(case_dir: Path, bundle: Path = None) -> Dict[str, Any]:
         path = _resolve_inside(bundle_root, relative, "source %s" % role)
         if not path.is_file():
             raise CloseError("INPUT_REQUIRED", "source file not found: %s" % relative)
-        raw = path.read_bytes()
-        if len(raw) > MAX_SOURCE_BYTES:
+        limit = _max_source_bytes()
+        if path.stat().st_size > limit:
             raise CloseError("INPUT_REQUIRED",
-                             "%s exceeds the %d-byte import limit" % (relative, MAX_SOURCE_BYTES))
+                             "%s exceeds the %d-byte import limit; split it by period or set "
+                             "%s to raise the cap" % (relative, limit, SOURCE_LIMIT_ENV))
+        raw = path.read_bytes()
+        if len(raw) > limit:
+            raise CloseError("INPUT_REQUIRED",
+                             "%s exceeds the %d-byte import limit; split it by period or set "
+                             "%s to raise the cap" % (relative, limit, SOURCE_LIMIT_ENV))
         sha = _sha256_bytes(raw)
         declared = _text(entry.get("sha256"))
         if declared and declared.lower() != sha:
