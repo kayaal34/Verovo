@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import shutil
 import sys
@@ -30,6 +31,17 @@ def _hash_bytes(value: bytes) -> str:
 
 def _hash_file(path: Path) -> str:
     return _hash_bytes(path.read_bytes())
+
+
+def semantic_fingerprint(result: Dict[str, Any]) -> str:
+    normalized = copy.deepcopy(result)
+    intake_report = normalized.get("intake_report")
+    if isinstance(intake_report, dict):
+        intake_report.pop("generated_at", None)
+    payload = json.dumps(
+        normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+    ).encode("utf-8")
+    return _hash_bytes(payload)
 
 
 def _safe_id(value: str) -> str:
@@ -214,6 +226,7 @@ def export_proof(bundle_dir: str | Path, out_dir: str | Path, *, by: str,
                 "财务完成轴不是业务 PASS/FAIL；费用、交付、覆盖与买方决定分开",
                 "规则复算不是跨源对账；供应商自认不是买方独立验收",
                 "P4 外部结果不证明由 Verovo 导致；causality=not_claimed",
+                "重放语义指纹只排除 intake_report.generated_at 时钟；其余财务字段全部参与哈希",
                 "签核不授权付款、退款或争议",
             ],
         }
@@ -224,6 +237,11 @@ def export_proof(bundle_dir: str | Path, out_dir: str | Path, *, by: str,
                 {"name": "validate-proof", "argv": ["python3", "-m", "ovo_acceptance", "proof", "${PROOF_DIR}"]},
             ],
             "inputs": [{"ref": relative, "sha256": _hash_file(path)} for relative, path in sources],
+            "expected_output": {
+                "artifact_id": "canonical",
+                "semantic_sha256": semantic_fingerprint(result),
+                "excluded": ["intake_report.generated_at"],
+            },
             "missing": [],
         }
         _write_json(temp / "bundle.json", bundle)
@@ -248,7 +266,6 @@ def replay_proof(proof_dir: str | Path, bundle_dir: str | Path) -> Dict[str, Any
     proof_dir = Path(proof_dir).resolve()
     bundle_dir = Path(bundle_dir).resolve()
     replay = json.loads((proof_dir / "replay" / "manifest.json").read_text(encoding="utf-8"))
-    proof = json.loads((proof_dir / "proof.json").read_text(encoding="utf-8"))
     mismatches = []
     for item in replay.get("inputs") or []:
         relative = str(item.get("ref") or "")
@@ -267,10 +284,11 @@ def replay_proof(proof_dir: str | Path, bundle_dir: str | Path) -> Dict[str, Any
         return {"status": "EXPIRED", "output_match": False, "mismatches": mismatches,
                 "proof_mutated": False}
     result = canonical_finance.run(bundle_dir)
-    expected = next(item for item in proof["artifacts"] if item["artifact_id"] == "canonical")
-    actual_hash = _hash_bytes(_bytes(result))
-    matches = actual_hash == expected["sha256"]
+    expected = replay["expected_output"]
+    actual_hash = semantic_fingerprint(result)
+    matches = actual_hash == expected["semantic_sha256"]
     return {"status": "PASS" if matches else "FAIL", "output_match": matches,
-            "expected_sha256": expected["sha256"], "actual_sha256": actual_hash,
+            "expected_sha256": expected["semantic_sha256"], "actual_sha256": actual_hash,
+            "semantic_exclusions": expected.get("excluded") or [],
             "mismatches": [] if matches else [{"ref": "artifacts/canonical.json", "reason": "output_changed"}],
             "proof_mutated": False, "causality": "not_claimed"}

@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "healthcheck"))
 CLI = ROOT / "healthcheck/verovo"
 FIXTURE = ROOT / "healthcheck/tests/fixtures/canonical-finance"
 
@@ -75,6 +76,17 @@ class ProofExportTests(unittest.TestCase):
         self.assertEqual("EXPIRED", payload["status"])
         self.assertFalse(payload["output_match"])
         self.assertEqual(before, tree_hashes(self.out))
+
+    def test_replay_fingerprint_excludes_only_volatile_clock(self):
+        import copy
+        from verovo_healthcheck import canonical_finance
+        from verovo_healthcheck.proof_export import semantic_fingerprint
+        first = canonical_finance.run(self.bundle)
+        second = copy.deepcopy(first)
+        second["intake_report"]["generated_at"] = "2030-01-01T00:00:00+00:00"
+        self.assertEqual(semantic_fingerprint(first), semantic_fingerprint(second))
+        second["case"]["usage"][0]["quantity"] = "999999"
+        self.assertNotEqual(semantic_fingerprint(first), semantic_fingerprint(second))
 
     def test_existing_output_is_not_overwritten(self):
         self.out.mkdir()

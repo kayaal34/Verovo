@@ -8,7 +8,7 @@ Earlier baseline reviewed 2026-11-04 against the **v0.13.0 release**. Available 
 
 `verovo proof export --bundle PERIOD --out NEW_DIR --by NAME` projects `canonical_finance.run` into a read-only Proof Bundle without modifying source inputs. Rule repricing, distinct-source reconciliation, buyer verification and delivery acceptance remain separate P3/P2/P3/P4 checks; UNKNOWN/UNPROVABLE become INDETERMINATE and completion axes never become a blanket PASS.
 
-`verovo proof replay NEW_DIR --bundle PERIOD` recomputes every input hash and the canonical output. Changed sources return EXPIRED, output drift returns FAIL, and a matching replay returns PASS without modifying proof bytes. Four dedicated tests plus the full healthcheck/conformance suite pass on the synthetic canonical fixture; a real customer close and buyer disposition remain unverified.
+`verovo proof replay NEW_DIR --bundle PERIOD` recomputes every input hash and the canonical output. Changed sources return EXPIRED, output drift returns FAIL, and a matching replay returns PASS without modifying proof bytes. The semantic fingerprint excludes only the volatile `intake_report.generated_at` clock; every financial field remains hashed. Five dedicated tests, 20 repeated proof runs and the full healthcheck/conformance suite pass on the synthetic canonical fixture; a real customer close and buyer disposition remain unverified.
 
 ## Canonical finance: completion axes (V1)
 
