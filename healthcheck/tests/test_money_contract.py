@@ -11,7 +11,7 @@ from __future__ import annotations
 import unittest
 from decimal import Decimal, ROUND_HALF_EVEN
 
-from verovo_healthcheck import money
+from verovo_healthcheck import cost_drivers, money, optimization
 
 
 class MoneyContractTests(unittest.TestCase):
@@ -39,6 +39,13 @@ class MoneyContractTests(unittest.TestCase):
         # 这正是 HALF_EVEN 会给出不同答案的边界族（0.125→0.12）：
         half_even = Decimal("0.125").quantize(money.CENTS, rounding=ROUND_HALF_EVEN)
         self.assertNotEqual(money.display(Decimal("0.125")), str(half_even))
+
+    def test_all_display_consumers_use_half_up(self):
+        self.assertEqual("0.13", optimization._money(Decimal("0.125")))
+        self.assertEqual("-0.13", optimization._money(Decimal("-0.125")))
+        self.assertEqual("0.13", cost_drivers._money(Decimal("0.125")))
+        self.assertEqual("-0.13", cost_drivers._money(Decimal("-0.125")))
+        self.assertIsNone(optimization._money(None))
 
     def test_parse_strict_vs_lenient(self):
         with self.assertRaises(money.MoneyError):

@@ -12,10 +12,9 @@
 3. 分摊 = 最大余数法：分摊之和恒等于总额（不丢分、不造分），
    零权重不承担费用，负分摊不出现。
 
-v1 边界（诚实声明）：只迁移 task_economics 为消费方（行为零变化，由其
-现有测试与 audit-case golden 证明）。optimization/cost_drivers 仍用本地
-HALF_EVEN 展示——在输入恒为两位小数时与 HALF_UP 等价；v2 统一迁移时须
-附 golden-case diff，不得静默改数。
+task_economics、optimization 与 cost_drivers 均为消费方。
+v2 已统一三条展示路径的 HALF_UP 口径；Buyer Ledger 的零小数币种容差、
+分摊规则和账务计算保持各自显式合同，不由此展示函数机械改写。
 """
 from __future__ import annotations
 
