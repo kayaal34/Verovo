@@ -1,0 +1,83 @@
+name: Buyer period result
+description: Report the buyer disposition after one synthetic or sanitized billing-period review
+title: "[Buyer period result] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Report what happened after one billing-period review.
+        This is a public issue. Do not upload invoices, contracts, account identifiers, credentials, raw exports or private supplier material. Use synthetic data, pseudonyms and explicitly shareable proof links only.
+        A correct recomputation is not buyer acceptance, a realized correction or proof of savings.
+  - type: input
+    id: version
+    attributes:
+      label: Verovo version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: data_class
+    attributes:
+      label: Public data classification
+      options:
+        - Synthetic fixture
+        - Public-redacted / explicitly shareable evidence
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Period scope and buyer criteria
+      description: Use a supplier pseudonym. State the period, charge/delivery scope, buyer criteria and exclusions without private document text.
+    validations:
+      required: true
+  - type: textarea
+    id: findings
+    attributes:
+      label: Findings and evidence sufficiency
+      description: Separate charge differences, delivery findings, coverage gaps and UNPROVABLE items. Add a public replay/proof link if available.
+    validations:
+      required: true
+  - type: dropdown
+    id: disposition
+    attributes:
+      label: Actual buyer disposition
+      options:
+        - Accepted the period after review
+        - Requested more evidence
+        - Requested remediation or supplier review
+        - Recorded a dispute
+        - Deferred / no buyer decision yet
+        - Not applicable / synthetic only
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Separately observed follow-up
+      description: Optional: supplier response, corrected record, acceptance, renewal decision or no observed follow-up. Do not infer recovery or causality from a finding.
+  - type: input
+    id: human_minutes
+    attributes:
+      label: Human review minutes
+      description: Include evidence collection and corrections. Use `unknown` if not measured.
+  - type: dropdown
+    id: second_use
+    attributes:
+      label: Second period or replay
+      options:
+        - Replayed the same period
+        - Reviewed a second period
+        - Not repeated yet
+        - Not applicable / synthetic only
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Evidence boundaries
+      options:
+        - label: This issue contains no private invoice, contract, account, credential or raw export data
+          required: true
+        - label: I have not presented replay PASS as buyer acceptance, realized savings or causal proof
+          required: true
