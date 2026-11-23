@@ -1297,7 +1297,7 @@ def _revise_locked(case_dir: Path, *, bundle: Path = None, source: Path = None,
     domains.update(control_domains or {})
     confirm_mapping(staging, reviewer=reviewer, control_domains=domains)
     close_report.calculate(staging)
-    close_report.build_report(staging)
+    close_report.build_report(staging, revision_id=next_id)
 
     final = _revision_dir(case_dir, next_id)
     _rewrite_bundle_root(staging, final / "bundle")

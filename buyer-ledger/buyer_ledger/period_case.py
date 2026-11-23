@@ -5,6 +5,43 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .case_repository import CaseRepository
+from .close import CloseError
+
+
+def _validate_signoff_binding(report, calculation, signoff, revision) -> None:
+    if signoff is None:
+        if revision and revision.get("status") in {"signed", "signed_with_open_items"}:
+            raise CloseError("STALE_SOURCE", "signed revision is missing its signoff record")
+        return
+    if report is None or calculation is None:
+        raise CloseError("STALE_SOURCE", "a signed view needs its report and calculation")
+    report_revision = report.get("revision_id") or "r1"
+    signoff_revision = signoff.get("revision_id") or "r1"
+    if report_revision != signoff_revision:
+        raise CloseError(
+            "STALE_SOURCE",
+            "signoff revision %s does not match report revision %s"
+            % (signoff_revision, report_revision),
+        )
+    report_fingerprint = (report.get("replay") or {}).get("output_snapshot_fingerprint")
+    if not report_fingerprint or signoff.get("report_fingerprint") != report_fingerprint:
+        raise CloseError("STALE_SOURCE", "signoff does not bind the current report fingerprint")
+    if signoff.get("calculation_fingerprint") != calculation.get("calculation_fingerprint"):
+        raise CloseError("STALE_SOURCE", "signoff does not bind the current calculation")
+    canonical_fingerprint = (calculation.get("canonical_snapshot") or {}).get("fingerprint")
+    if signoff.get("canonical_snapshot_fingerprint") != canonical_fingerprint:
+        raise CloseError("STALE_SOURCE", "signoff does not bind the current canonical snapshot")
+    if revision is not None:
+        if revision.get("revision_id") != signoff_revision:
+            raise CloseError("STALE_SOURCE", "signoff and revision metadata name different revisions")
+        if revision.get("status") != signoff.get("state") or revision.get("signoff") != signoff:
+            raise CloseError("STALE_SOURCE", "signoff and revision metadata are not one committed record")
+    from . import close_revision
+    recorded = signoff.get("record_fingerprint")
+    if recorded:
+        body = {key: value for key, value in signoff.items() if key != "record_fingerprint"}
+        if recorded != close_revision._fingerprint(body):
+            raise CloseError("STALE_SOURCE", "signoff record fingerprint is invalid")
 
 
 class PeriodCase:
@@ -15,8 +52,29 @@ class PeriodCase:
     def case_dir(self) -> Path:
         return self.repository.case_dir
 
-    def project(self) -> Dict[str, Any]:
-        return _project_case(self.repository)
+    def project(self, *, allow_pending: bool = False) -> Dict[str, Any]:
+        from . import close_revision
+
+        case_root = (self.case_dir.parent.parent
+                     if self.case_dir.parent.name == "revisions" else self.case_dir)
+
+        def assert_committed() -> None:
+            recovery = close_revision.recover(case_root)
+            if recovery.get("issues"):
+                raise CloseError(
+                    "REVIEW_REQUIRED",
+                    "close case has an unfinished revision transaction; run close status "
+                    "or close recover before using the direct read-only projection",
+                )
+
+        if not allow_pending:
+            assert_committed()
+        self.repository.snapshot()
+        payload = _project_case(self.repository)
+        self.repository.assert_snapshot_current()
+        if not allow_pending:
+            assert_committed()
+        return payload
 
 
 def _project_case(repository: CaseRepository) -> Dict[str, Any]:
@@ -35,7 +93,7 @@ def _project_case(repository: CaseRepository) -> Dict[str, Any]:
     delegation_block = services.delegation_block
 
     case_dir = repository.case_dir
-    job = services.load_period_job(repository.path("job"))
+    job = services._validate_job(repository.read_json("job", missing_ok=False))
     scan_path = repository.path("scan")
     draft_path = repository.path("draft")
     confirmed_path = repository.path("confirmation")
@@ -55,6 +113,7 @@ def _project_case(repository: CaseRepository) -> Dict[str, Any]:
     signoff = repository.read_json("signoff")
     revision = repository.read_json("revision")
     confirmed = confirmation is not None
+    _validate_signoff_binding(report, calculation, signoff, revision)
 
     snapshot_refs: List[Dict[str, Any]] = []
     domains: Dict[str, List[str]] = {"vendor": [], "buyer": [], "pending": []}

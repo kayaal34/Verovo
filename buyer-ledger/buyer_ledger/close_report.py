@@ -1083,7 +1083,7 @@ def _group_open_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
-                       review: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+                       review: Optional[Dict[str, Any]], revision_id: str) -> Dict[str, Any]:
     case_dir = Path(case_dir)
     canonical = _canonical_dir(case_dir)
     job = load_period_job(case_dir / "period-job.json")
@@ -1362,7 +1362,7 @@ def _build_report_body(case_dir: Path, calculation: Dict[str, Any],
     report = {
         "schema": REPORT_SCHEMA,
         "job_id": job["job_id"],
-        "revision_id": "r1",
+        "revision_id": revision_id,
         "generated_at": _now_iso(),
         "scope": {
             "buyer": job.get("buyer") or None,
@@ -1742,9 +1742,11 @@ def _write_csv(path: Path, fieldnames: List[str], rows: List[Dict[str, Any]],
     _write_text(path, buffer.getvalue())
 
 
-def build_report(case_dir: Path) -> Dict[str, Any]:
+def build_report(case_dir: Path, *, revision_id: str = None) -> Dict[str, Any]:
     """Build the six report artifacts from a current calculation."""
     case_dir = Path(case_dir)
+    if revision_id is None:
+        revision_id = case_dir.name if case_dir.parent.name == "revisions" else "r1"
     _ensure_unsigned(case_dir)
     calculation = load_calculation(case_dir)
     expected_calculation = _fingerprint(
@@ -1772,7 +1774,7 @@ def build_report(case_dir: Path) -> Dict[str, Any]:
                          "the canonical bundle changed after calculation; run "
                          "close calculate again before reporting")
     review = _load_review(case_dir)
-    report = _build_report_body(case_dir, calculation, review)
+    report = _build_report_body(case_dir, calculation, review, revision_id)
     # Fingerprint the report body before adding the fingerprint itself and the
     # volatile generation timestamp.
     fingerprint_body = dict(report)

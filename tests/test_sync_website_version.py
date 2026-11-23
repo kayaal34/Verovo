@@ -35,7 +35,7 @@ class SyncWebsiteVersionTests(unittest.TestCase):
             [sys.executable, str(SCRIPT), "--check"], cwd=ROOT,
             capture_output=True, text=True)
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("0.16.1", completed.stdout)
+        self.assertIn("0.16.2", completed.stdout)
 
 
 if __name__ == "__main__":

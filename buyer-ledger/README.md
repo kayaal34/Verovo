@@ -209,8 +209,11 @@ $B close revise ./close-2026-10 --source ./credit-note.csv --role bills \
 $B close signoff ./close-2026-10 --revision r2 \
   --by buyer-controller --scope "accept v2 with open credit" \
   --reservation "credit not applied"
-$B close status ./close-2026-10                # 默认最新 revision
+$B close status ./close-2026-10                # 默认最新 revision；先恢复待完成 journal
 $B close status ./close-2026-10 --revision r1
+
+# 直接 PeriodCase/build_case 投影不执行恢复：pending journal 或读取期间状态变化会拒绝，
+# 不返回事务中点的已签核视图；init/ingest/mapping 写入统一经过 CaseRepository。
 ```
 
 - `PeriodRevision` 记录 `period_job_id`、`revision_id`、`parent_revision_id`、
