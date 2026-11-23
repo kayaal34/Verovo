@@ -1,0 +1,43 @@
+import json
+import sys
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "healthcheck"))
+
+from verovo_healthcheck import spend_action  # noqa: E402
+
+
+class SpendActionSchemaTests(unittest.TestCase):
+    def test_schema_matches_public_action_vocabulary(self):
+        schema = json.loads((ROOT / "schemas" / "spend-action-list.schema.json").read_text(encoding="utf-8"))
+        self.assertEqual(schema["$schema"], "https://json-schema.org/draft/2020-12/schema")
+        action = schema["$defs"]["action"]
+        self.assertEqual(tuple(action["enum"]), spend_action.ACTION_ORDER)
+        for field in (
+            "schema", "case_id", "buyer", "vendor", "period", "actions",
+            "summary", "executes_payment", "buyer_decision_required",
+        ):
+            self.assertIn(field, schema["required"])
+        self.assertFalse(schema["properties"]["executes_payment"]["const"])
+
+    def test_golden_output_has_the_declared_contract(self):
+        case = json.loads((ROOT / "examples" / "audit-golden-case" / "audit-case.json").read_text(encoding="utf-8"))
+        manifest = json.loads((ROOT / "examples" / "audit-golden-case" / "manifest.json").read_text(encoding="utf-8"))
+        result = spend_action.build_action_list(
+            case, ROOT / "examples" / "audit-golden-case", manifest
+        )
+        schema = json.loads((ROOT / "schemas" / "spend-action-list.schema.json").read_text(encoding="utf-8"))
+        for field in schema["required"]:
+            self.assertIn(field, result)
+        for row in result["actions"]:
+            self.assertIn(row["action"], spend_action.ACTION_ORDER)
+            self.assertIsInstance(row["finding_ids"], list)
+            if row["amount"] is not None:
+                self.assertRegex(row["amount"]["value"], r"^\d+\.\d{2}$")
+
+
+if __name__ == "__main__":
+    unittest.main()

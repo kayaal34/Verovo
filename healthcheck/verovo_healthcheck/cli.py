@@ -64,6 +64,8 @@ from . import period_intake as period_mod
 from . import cost_drivers as drivers_mod
 from . import optimization as optimization_mod
 from . import proof_export as proof_mod
+from . import spend_action as spend_action_mod
+from . import provider_contract as provider_contract_mod
 # Conformance pack loaded lazily in cmd_conformance
 
 DEFAULT_DAYS = 7
@@ -1873,6 +1875,48 @@ def cmd_proof(args) -> int:
         return 2
 
 
+def cmd_provider_check(args) -> int:
+    try:
+        output_error = _validate_output_paths([args.manifest], args.json)
+        if output_error:
+            raise ValueError(output_error)
+        result = provider_contract_mod.load_manifest(args.manifest)
+        rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        if args.json:
+            Path(args.json).write_text(rendered, encoding="utf-8")
+        print(rendered, end="")
+        return 0
+    except (ValueError, OSError) as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 2
+
+
+def cmd_spend_actions(args) -> int:
+    try:
+        output_error = _validate_output_paths([args.case], args.json, args.markdown)
+        if output_error:
+            raise ValueError(output_error)
+        case_path = Path(args.case)
+        case = json.loads(case_path.read_text(encoding="utf-8"))
+        manifest_path = case_path.parent / "manifest.json"
+        manifest = (
+            json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest_path.is_file() else None
+        )
+        result = spend_action_mod.build_action_list(case, case_path.parent, manifest)
+        rendered_json = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        rendered_markdown = spend_action_mod.action_markdown(result)
+        if args.json:
+            Path(args.json).write_text(rendered_json, encoding="utf-8")
+        if args.markdown:
+            Path(args.markdown).write_text(rendered_markdown, encoding="utf-8")
+        print(rendered_json if args.json_only else rendered_markdown, end="")
+        return 0
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="verovo",
@@ -1883,6 +1927,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version",
                         version="verovo-healthcheck %s" % __version__)
     sub = parser.add_subparsers(dest="cmd")
+
+    p_provider = sub.add_parser("provider", help="validate Provider Manifests and compute local admission")
+    provider_sub = p_provider.add_subparsers(dest="provider_action", required=True)
+    p_provider_check = provider_sub.add_parser(
+        "check", help="validate one manifest without contacting the upstream engine")
+    p_provider_check.add_argument("--manifest", required=True, help="Provider Manifest JSON")
+    p_provider_check.add_argument("--json", metavar="PATH", help="write the admission result")
+    p_provider_check.set_defaults(func=cmd_provider_check)
+
+    p_spend = sub.add_parser(
+        "spend-actions",
+        help="project an existing Audit Case into a line-level buyer worklist; never executes payment")
+    p_spend.add_argument("--case", required=True, help="existing Audit Case JSON")
+    p_spend.add_argument("--json", metavar="PATH", help="write the machine-readable action list")
+    p_spend.add_argument("--markdown", metavar="PATH", help="write the human-readable action list")
+    p_spend.add_argument("--json-only", action="store_true", help="print JSON instead of Markdown")
+    p_spend.set_defaults(func=cmd_spend_actions)
 
     p_proof = sub.add_parser("proof", help="export and replay a Prove Anything period Proof Bundle")
     proof_sub = p_proof.add_subparsers(dest="proof_action", required=True)

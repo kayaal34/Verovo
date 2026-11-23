@@ -2,32 +2,24 @@
 
 ## Product boundary — 2026-10-31
 
-Buyer-first verification of **AI service charges and delivery**, independently
-or together. Providers extend the product through concrete transaction needs.
-[Stable definition](docs/product-definition.md).
+Buyer-first independent measurement and audit of **AI agent charges, delivery and task economics**. Providers extend the product through concrete transaction needs. [Stable definition](docs/product-definition.md).
 
 ## Available on main
 
-- Buyer `review` tasks: explicit scope and criteria, local JSON observations,
-  separate charges/delivery conclusions, evidence hashes and offline reports.
-  Shipped in the v0.10.0 tag.
+- Buyer `review` tasks: explicit scope and criteria, local JSON observations, separate charges/delivery conclusions, evidence hashes and offline reports.
 - Supported billing recounts, evidence preparation, discrepancy and recovery records.
-- Buyer Ledger tooling and catalog; cataloged platforms are not live-validated.
+- `spend-actions`: an existing Audit Case becomes a line-level worklist with clean, evidence, review, unreviewed and settled actions. It does not execute or authorize payment.
+- `provider check`: local Provider Manifest validation and admission with explicit readiness, version, resource-limit, coverage and cleanup semantics. It does not claim live engine contact.
+- Task economics, canonical period proofs, Buyer Ledger tooling and catalog; cataloged platforms are not live-validated.
 - Local developer diagnostics, conformance and free measurement runs.
 
 ## Next validation work
 
-1. Complete a real application charge and/or delivery task with a buyer who has
-   a decision to make. Delivery review does not depend on finding a billing error.
-2. Complete a real tool/API account-period reconciliation; distinguish self-use
-   feasibility from external buyer value.
-3. Compare customer effort, actual decisions, agreed fees and repeated tasks
-   against the previous process. Reuse rules and mappings before broadening automation.
+1. **Make one real period actionable.** Bring a supplier account, period and due date through the existing rules and records. Record which lines the buyer pays, holds, supplements or sends for vendor review; a generated report alone is not the business result.
+2. **Verify what control actually stopped.** On one authorized retry-prone paid path, compare stop receipts with subsequent charges, late-settled pre-stop calls and bypass paths. Runtime spending enforcement is a separate review, not a current product claim.
+3. **Support one real procurement comparison.** Fix the agent and acceptance rubric, compare two tools on similar tasks, include failure/rework/human takeover cost, and record whether the buyer reuses the comparison in procurement.
 
-Coding-agent task acceptance and multi-source allocation remain expansion
-candidates. Input adapters and automation follow actual tasks. A general quality
-platform, universal contract parsing, runtime spending enforcement and payment
-settlement are not current commitments.
+Input adapters and automation follow actual blockers in these tasks. OTel/FOCUS mappings, LiteLLM/Langfuse imports, offline mitmproxy and Inspect runners are conditional integration choices, not shipped universal connectors. A general quality platform, universal contract parsing, public agent rankings, runtime spending enforcement and payment settlement are not current commitments.
 
 Charge review project fees, acceptance/renewal fees and suitable recovery-based
 terms remain hypotheses; no fixed enterprise rate is published. Existing

@@ -25,8 +25,18 @@ From the repository root:
 
 ```bash
 python3 scripts/validate_audit_case.py examples/audit-golden-case/audit-case.json
+python3 healthcheck/verovo spend-actions \
+  --case examples/audit-golden-case/audit-case.json \
+  --json /tmp/verovo-spend-actions.json \
+  --markdown /tmp/verovo-spend-actions.md
 python3 -m unittest discover -s tests
 ```
+
+`spend-actions` produces a review worklist, not a payment instruction. Only
+`clean_charge_lines` can become `ready_for_payment`; affected lines become
+`evidence_required`, `review_required` or `settled`, and an unflagged line that
+was not explicitly confirmed clean remains `unreviewed`. The buyer's actual
+payment, hold, evidence request or vendor review is recorded separately.
 
 ## Reading the case
 

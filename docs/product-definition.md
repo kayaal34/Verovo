@@ -1,8 +1,8 @@
 # Verovo product definition
 
-Baseline: 2026-10-30. Implementation alignment: 2026-10-31.
+Baseline: 2026-10-30. Implementation alignment: 2026-11-23.
 
-**Verovo is a buyer-side AI financial audit and task economics engine.**
+**Verovo is the independent measurement and audit layer for AI agents: a buyer-side financial audit and task economics engine.**
 It connects technical usage, financial records and business outcomes to compute
 direct/shared task costs and cost per verified success. Verified monetary value
 supports ROI calculation; missing evidence remains explicit.
@@ -71,6 +71,14 @@ The current [free measurement runs](https://roy-tong.github.io/Verovo/services.h
 remain free and limited to measurement samples. Enterprise review scope and any
 fee are agreed for a concrete task; there is no fixed enterprise rate or recovery
 guarantee. See [commercial scope](commercial-narrative.md).
+
+## Spend actions and Provider admission (implemented 2026-11-23)
+
+The two product goals share an evidence base but not a single score. AI Spend Assurance asks whether charges occurred, were authorized, were calculated correctly and received a disposition. Agent Value Measurement asks which agent, tool or workflow delivers accepted outcomes at a defensible cost. Financial correctness, control effectiveness, delivery and economic value remain independent conclusions.
+
+`spend-actions` projects an existing Audit Case into ready/evidence/review/unreviewed/settled work items with owner roles and per-currency amount coverage. Only explicitly clean lines can become ready for payment; actual payment or vendor review remains outside the tool. `provider check` validates adapter identity, version, readiness, source trust, resource limits, coverage, cleanup and raw snapshot digests. Local `admit` does not claim live connectivity, complete coverage or control effectiveness. See [feature status](feature-status.md) and [Provider contract](provider-contract.md).
+
+The next business validations are an actual buyer disposition on one period, stop-receipt reconciliation against subsequent charges on one authorized path, and one private two-tool procurement comparison. Runtime enforcement, public benchmarks and universal connectors are not current capabilities.
 
 ## Task economics
 
