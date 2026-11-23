@@ -58,6 +58,15 @@ python3 healthcheck/verovo drivers --case ./period-out/case.json
 
 [任务经济性](docs/task-economics.md) · [账期摄入](docs/period-intake.md) · [成本驱动](docs/cost-optimization.md)
 
+## 导出并重放账期证明
+
+```bash
+verovo proof export --bundle healthcheck/tests/fixtures/canonical-finance --out /tmp/verovo-period-proof --by reviewer
+verovo proof replay /tmp/verovo-period-proof --bundle healthcheck/tests/fixtures/canonical-finance
+```
+
+导出保留来源哈希、完成轴和证据缺口。输入变化时重放返回 `EXPIRED`，财务输出变化返回 `FAIL`；两个命令都不修改账期，也不授权付款。安装版 `verovo` wheel 覆盖上述 canonical Proof 命令；pre-M1 的 `python3 -m buyer_ledger` close/reproduce 仍是源码 checkout 工具，详见 [Buyer Ledger](buyer-ledger/README.md)。
+
 ## 从公开测量工作中长出来
 
 Verovo 始于一次约 110 个 AI 用量与成本工具的审计。项目公开了 65 条以上可复核发现，覆盖五类反复出现的计费问题，并持续记录复现与上游修正。

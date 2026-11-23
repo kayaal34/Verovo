@@ -58,6 +58,15 @@ python3 healthcheck/verovo drivers --case ./period-out/case.json
 
 [Task economics](docs/task-economics.md) · [Period intake](docs/period-intake.md) · [Cost drivers](docs/cost-optimization.md)
 
+## Export and replay a period proof
+
+```bash
+verovo proof export --bundle healthcheck/tests/fixtures/canonical-finance --out /tmp/verovo-period-proof --by reviewer
+verovo proof replay /tmp/verovo-period-proof --bundle healthcheck/tests/fixtures/canonical-finance
+```
+
+The export preserves source hashes, completion axes and evidence gaps. Replay returns `EXPIRED` for changed inputs and `FAIL` for changed financial output; neither command mutates the period or authorizes payment. The installed `verovo` wheel covers these canonical proof commands. The pre-M1 `python3 -m buyer_ledger` close/reproduce workflows remain source-checkout tools documented in [Buyer Ledger](buyer-ledger/README.md).
+
 ## Built from public measurement work
 
 Verovo grew out of an audit of roughly 110 AI usage and cost tools. The project published more than 65 evidence-backed findings across five recurring accounting problems, along with reproductions and upstream corrections.
