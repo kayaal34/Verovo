@@ -1,5 +1,4 @@
 import copy
-import hashlib
 import json
 import tempfile
 import unittest
@@ -49,7 +48,7 @@ class SpendActionEvidenceTests(unittest.TestCase):
         }
 
     def _review(self, path, line_id, digest=None):
-        actual = hashlib.sha256((self.root / path).read_bytes()).hexdigest()
+        actual = spend_action._source_digest(self.root / path)
         return {
             "invoice_source_id": path,
             "line_id": line_id,
@@ -132,6 +131,22 @@ class SpendActionEvidenceTests(unittest.TestCase):
         rows = {row["source"]["path"]: row for row in result["actions"]}
         self.assertEqual(rows[self.invoice_a]["action"], "ready_for_payment")
         self.assertEqual(rows[self.invoice_b]["action"], "unreviewed")
+
+    def test_crlf_checkout_does_not_change_source_digest(self):
+        payload = json.dumps({
+            "lines": [{
+                "line_id": "line-1",
+                "charge_id": "charge-a",
+                "amount": 10,
+                "currency": "USD",
+            }],
+        }).replace("\n", "\r\n").encode("utf-8")
+        (self.root / self.invoice_a).write_bytes(payload)
+        result = spend_action.build_action_list(
+            self.case, self.root, self._manifest([self._review(self.invoice_a, "line-1")])
+        )
+        row = self._row(result, self.invoice_a)
+        self.assertEqual(row["action"], "ready_for_payment")
 
     def test_changed_source_digest_invalidates_the_old_review(self):
         review = self._review(self.invoice_a, "line-1", digest="0" * 64)

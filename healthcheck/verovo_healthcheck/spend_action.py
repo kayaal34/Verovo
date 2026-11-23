@@ -64,6 +64,18 @@ def _inside(root: Path, relative: Any) -> Path:
     return candidate
 
 
+def _source_digest(path: Path) -> str:
+    data = path.read_bytes()
+    if path.suffix.lower() in {".json", ".jsonl", ".csv", ".txt", ".md", ".yaml", ".yml"}:
+        try:
+            text = data.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            pass
+        else:
+            data = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
+
+
 def _validate_case(case: Any) -> None:
     if not isinstance(case, dict):
         raise SpendActionError("audit case must be an object")
@@ -168,7 +180,7 @@ def _load_charge_reviews(root: Path, case: Dict[str, Any],
         if key in reviews:
             raise SpendActionError("duplicate charge review for %s#%s" % key)
         source_path = _inside(root, raw["invoice_source_id"])
-        actual_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+        actual_digest = _source_digest(source_path)
         valid = True
         reason = "Versioned clean review matches the invoice bytes and contract version."
         if not DIGEST_RE.fullmatch(raw["source_digest"]):
