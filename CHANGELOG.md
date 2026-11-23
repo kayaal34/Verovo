@@ -1,3 +1,18 @@
+## v0.16.2 - 2026-11-23
+
+### Changed
+
+- Legacy close init/ingest/mapping writes now share the `CaseRepository` atomic-write boundary for job, scan, mapping, canonical tables, rule maps and manifests.
+
+### Fixed
+
+- Direct `PeriodCase` projections use byte-level state snapshots, reject unfinished journals and detect changes during projection instead of returning a mid-transaction signed view. `close status` still performs recovery first and preserves recovery diagnostics.
+- Signoff projection now requires matching report revision and report/calculation/canonical fingerprints. Revision-built reports carry their actual revision id instead of always using r1, so an old signoff cannot endorse a new report.
+
+### Tests
+
+- 430 Buyer Ledger tests pass, including signoff-checkpoint refusal, revision/fingerprint binding, snapshot drift, repository write routing and the existing revision/recovery suites.
+
 ## v0.16.1 - 2026-11-23
 
 Compatible architecture hardening for repeatable buyer-close work.

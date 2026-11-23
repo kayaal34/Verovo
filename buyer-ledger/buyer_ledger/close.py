@@ -326,6 +326,12 @@ def load_period_job(path: Path) -> Dict[str, Any]:
     return _validate_job(job)
 
 
+def _case_write(case_dir: Path, target: Path, data: Any) -> Path:
+    from .case_repository import CaseRepository
+    raw = data.encode("utf-8") if isinstance(data, str) else bytes(data)
+    return CaseRepository(case_dir).atomic_write_bytes(target, raw)
+
+
 def init_case(case_dir: Path, *, job_path: Path = None, job_id: str = "",
               buyer: str = "", vendor: str = "", account: str = "",
               currency: str = "", period: str = "", timezone_: str = "UTC",
@@ -364,7 +370,7 @@ def init_case(case_dir: Path, *, job_path: Path = None, job_id: str = "",
         }
         _validate_job(job)
         raw = (json.dumps(job, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
-    target.write_bytes(raw)
+    _case_write(case_dir, target, raw)
     return {"case_dir": str(case_dir), "period_job": job, "state": "created",
             "next": "close ingest %s --bundle <dir>" % case_dir}
 
@@ -959,9 +965,8 @@ def ingest(case_dir: Path, bundle: Path = None) -> Dict[str, Any]:
     draft_bytes = (json.dumps(draft, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
     idempotent = draft_path.is_file() and draft_path.read_bytes() == draft_bytes
     intake_dir.mkdir(parents=True, exist_ok=True)
-    scan_path.write_text(json.dumps(scan, indent=2, ensure_ascii=False) + "\n",
-                         encoding="utf-8")
-    draft_path.write_bytes(draft_bytes)
+    _case_write(case_dir, scan_path, json.dumps(scan, indent=2, ensure_ascii=False) + "\n")
+    _case_write(case_dir, draft_path, draft_bytes)
     return {"scan": scan, "mapping_draft": draft, "documents": documents,
             "idempotent": idempotent}
 
@@ -1062,8 +1067,8 @@ def confirm_mapping(case_dir: Path, *, reviewer: str,
                 "path": job["rule_map"],
                 "sha256": _sha256_bytes(rule_source.read_bytes())}
     confirmed_path.parent.mkdir(parents=True, exist_ok=True)
-    confirmed_path.write_text(
-        json.dumps(confirmation, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _case_write(case_dir, confirmed_path,
+                json.dumps(confirmation, indent=2, ensure_ascii=False) + "\n")
     try:
         generate_canonical(case_dir, confirmation)
     except Exception:
@@ -1206,16 +1211,16 @@ def generate_canonical(case_dir: Path,
                 entry["rule_version"] = rule_version_by_id.get(rule_id, "")
             entries.append(entry)
         if suffix == ".jsonl":
-            target_path.write_text(
-                "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in all_rows),
-                encoding="utf-8")
+            _case_write(case_dir, target_path, "".join(
+                json.dumps(row, ensure_ascii=False) + "\n" for row in all_rows))
         else:
             fieldnames = header_out or ["charge_id"]
-            with target_path.open("w", newline="", encoding="utf-8") as handle:
-                writer = csv.DictWriter(handle, fieldnames=fieldnames,
-                                        extrasaction="ignore")
-                writer.writeheader()
-                writer.writerows(all_rows)
+            buffer = io.StringIO()
+            writer = csv.DictWriter(buffer, fieldnames=fieldnames,
+                                    extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(all_rows)
+            _case_write(case_dir, target_path, buffer.getvalue())
         manifest["sources"][target] = entries
 
     invoice_entries = []
@@ -1224,7 +1229,7 @@ def generate_canonical(case_dir: Path,
         if not source.is_file():
             raise CloseError("INPUT_REQUIRED",
                              "invoice document missing: %s" % document["path"])
-        shutil.copyfile(source, canonical / source.name)
+        _case_write(case_dir, canonical / source.name, source.read_bytes())
         invoice_entries.append({
             "path": source.name, "sha256": document.get("sha256"),
             "document_ref": document.get("document_ref"),
@@ -1241,17 +1246,16 @@ def generate_canonical(case_dir: Path,
 
     if job.get("rule_map"):
         rule_source = _resolve_inside(bundle_root, job["rule_map"], "rule_map")
-        shutil.copyfile(rule_source, canonical / "rule-map.json")
+        _case_write(case_dir, canonical / "rule-map.json", rule_source.read_bytes())
     else:
-        (canonical / "rule-map.json").write_text(
-            json.dumps({"schema_version": "1.0", "rules": []}, indent=2) + "\n",
-            encoding="utf-8")
+        _case_write(case_dir, canonical / "rule-map.json",
+                    json.dumps({"schema_version": "1.0", "rules": []}, indent=2) + "\n")
     confirmed_path = case_dir / "intake" / "mapping-confirmed.json"
     if confirmed_path.is_file():
         manifest["mapping_confirmed_sha256"] = _sha256_bytes(
             confirmed_path.read_bytes())
-    (canonical / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _case_write(case_dir, canonical / "manifest.json",
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
     return canonical
 
 
@@ -1301,7 +1305,7 @@ def delegation_block(*, job_id, task_state, next_actor, next_required,
     }
 
 
-def build_case(case_dir: Path) -> Dict[str, Any]:
+def build_case(case_dir: Path, *, allow_pending: bool = False) -> Dict[str, Any]:
     """Project the close case for reviewers; reads state files, writes nothing."""
     from .period_case import PeriodCase
-    return PeriodCase(case_dir).project()
+    return PeriodCase(case_dir).project(allow_pending=allow_pending)

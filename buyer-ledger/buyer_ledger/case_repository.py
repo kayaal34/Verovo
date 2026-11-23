@@ -25,6 +25,7 @@ STATE_PATHS = {
 class CaseRepository:
     def __init__(self, case_dir: Any):
         self.case_dir = Path(case_dir)
+        self._snapshot = None
 
     def path(self, name: str) -> Path:
         try:
@@ -36,15 +37,32 @@ class CaseRepository:
     def exists(self, name: str) -> bool:
         return self.path(name).is_file()
 
+    def _read_snapshot(self) -> Dict[str, bytes]:
+        return {name: self.path(name).read_bytes() for name in STATE_PATHS
+                if self.path(name).is_file()}
+
+    def snapshot(self) -> None:
+        self._snapshot = self._read_snapshot()
+
+    def assert_snapshot_current(self) -> None:
+        if self._snapshot is not None and self._snapshot != self._read_snapshot():
+            raise CloseError(
+                "STALE_SOURCE",
+                "close state changed while the case was being projected; retry the projection",
+            )
+
     def read_json(self, name: str, *, missing_ok: bool = True) -> Optional[Dict[str, Any]]:
         path = self.path(name)
-        if not path.is_file():
+        raw = self._snapshot.get(name) if self._snapshot is not None else None
+        if raw is None and path.is_file():
+            raw = path.read_bytes()
+        if raw is None:
             if missing_ok:
                 return None
             raise CloseError("INPUT_REQUIRED", "%s not found: %s" % (name, path))
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            value = json.loads(raw.decode("utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise CloseError(
                 "ARTIFACT_PARTIAL",
                 "%s exists but cannot be read as JSON: %s" % (path, exc),

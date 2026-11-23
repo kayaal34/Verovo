@@ -692,7 +692,7 @@ def cmd_close_status(args):
     from . import close_revision
     recovery = close_revision.ensure_recovered(args.case)
     target = close_revision.resolve_case_dir(args.case, args.revision)
-    payload = close_mod.build_case(target)
+    payload = close_mod.build_case(target, allow_pending=True)
     payload["recovery"] = recovery
     fmt = getattr(args, "format", "auto")
     if fmt == "auto":
