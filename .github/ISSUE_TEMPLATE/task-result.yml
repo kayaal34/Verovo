@@ -55,7 +55,7 @@ body:
     id: outcome
     attributes:
       label: Separately observed follow-up
-      description: Optional: supplier response, corrected record, acceptance, renewal decision or no observed follow-up. Do not infer recovery or causality from a finding.
+      description: "Optional: supplier response, corrected record, acceptance, renewal decision or no observed follow-up. Do not infer recovery or causality from a finding."
   - type: input
     id: human_minutes
     attributes:
