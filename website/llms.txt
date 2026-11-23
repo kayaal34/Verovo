@@ -1,6 +1,6 @@
 # Verovo
 
-> Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.
+> Verovo is the independent measurement and audit layer for AI agents. Compare rules, invoices, usage, delivery and buyer acceptance for one period; prepare line-level spend actions and measure task economics. Supplier self-attestation leaves buyer acceptance unproven.
 
 ## Start here
 
@@ -29,7 +29,9 @@
 
 ## Product definition and buyer review
 
-- [Product definition](https://github.com/roy-tong/verovo/blob/main/docs/product-definition.md): buyer-first charges and delivery, independent workflows; provider extensions need a concrete transaction.
+- [Product definition](https://github.com/roy-tong/verovo/blob/main/docs/product-definition.md): independent agent spend audit and value measurement, with separate financial, control, delivery and economic conclusions.
+- [Spend action list](https://github.com/roy-tong/verovo/blob/main/schemas/spend-action-list.schema.json): ready/evidence/review/unreviewed/settled work items from an existing Audit Case; no payment execution or authorization.
+- [Provider contract](https://github.com/roy-tong/verovo/blob/main/docs/provider-contract.md): local adapter admission, version, limits, coverage and cleanup; no live-connectivity claim.
 - [Buyer review guide](https://github.com/roy-tong/verovo/blob/main/docs/buyer-review.md): local criteria and JSON evidence; separate verdicts, hashes and offline reports.
 - [Synthetic buyer report](https://roy-tong.github.io/Verovo/examples/buyer-review.html): charge match, unmet delivery requirement and missing evidence, kept separate.
 

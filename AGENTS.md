@@ -1,13 +1,13 @@
 # AGENTS.md — implementation metadata for coding agents
 
-> Agent-readable metadata for Verovo. Product boundary reviewed: 2026-10-31.
+> Agent-readable metadata for Verovo. Product boundary reviewed: 2026-11-23.
 > If you are a coding agent asked to implement, integrate, or verify Verovo
 > claims, this file is the shortest correct path. It is normative only where it
 > cites a normative document.
 
 ## 1. What you are implementing
 
-Verovo is buyer-first: verify AI service charges and delivery independently or together.
+Verovo is buyer-first: independently measure and audit AI agent charges, delivery and task economics, without collapsing financial, control, delivery and value conclusions.
 Read [product-definition.md](docs/product-definition.md) before changing product scope.
 The released `review` command compares explicit buyer criteria with local JSON
 observations; missing evidence remains UNPROVABLE. `delivery` is an effort journal,
@@ -112,6 +112,7 @@ Abstention is a valid output. See `standard/hard-questions.md` Q4.
 
 ## 9. Current implementation boundaries
 
+- `spend-actions` projects an existing Audit Case into ready/evidence/review/unreviewed/settled work items. Only manifest-confirmed clean lines become ready for payment; the command never executes or authorizes payment. `provider check` validates a local Provider Manifest and returns admit/degrade/refuse without contacting the engine or claiming production coverage. Both are Python 3.9 standard-library, read-only workflows.
 - `buyer_ledger.period_case.PeriodCase` owns the read-only buyer-close projection; `CaseRepository` owns registered state paths, strict JSON reads, atomic case writes and byte-level projection snapshots. Legacy `close` init/ingest/mapping writes use the same Repository boundary. Direct projections refuse unfinished journals and detect state drift; `close status` still runs recovery first and may report unresolved recovery state, so it is not a side-effect-free read. Projections also require report revision, report/calculation/canonical fingerprints and signoff metadata to bind one revision. Revision-built reports carry their actual revision id. `close.build_case` remains a compatibility facade.
 - `healthcheck/verovo_healthcheck/money.py` owns display rounding for task economics, optimization and cost drivers. Zero-decimal currency tolerances and allocation rules remain explicit separate contracts.
 - `reproduce` builds and verifies in a sibling staging directory before replacing the output. Canonical finance and usage replay remain separate engines and proof scopes.

@@ -1,0 +1,57 @@
+{
+  "schema": "verovo.provider-manifest/0.1",
+  "adapter_id": "otel-file",
+  "engine": {
+    "id": "opentelemetry-genai-file",
+    "version": "2026-11-23",
+    "integration_mode": "file"
+  },
+  "source": {
+    "party": "buyer",
+    "control_domain": "buyer",
+    "collector_party": "buyer",
+    "collection_method": "local_file_export"
+  },
+  "readiness_checks": [
+    {
+      "check_id": "runtime",
+      "status": "pass",
+      "required": true,
+      "observed": "Python 3.9 standard-library file reader is available."
+    },
+    {
+      "check_id": "input_schema",
+      "status": "pass",
+      "required": true,
+      "observed": "The pinned synthetic OTel JSON fixture was parsed before this manifest was written."
+    },
+    {
+      "check_id": "content_redaction",
+      "status": "pass",
+      "required": false,
+      "observed": "Prompt and response payload collection is disabled in this example."
+    }
+  ],
+  "limits": {
+    "input_bytes": 33554432,
+    "output_bytes": 4194304,
+    "depth": 32,
+    "cpu_seconds": 30,
+    "timeout_ms": 30000
+  },
+  "coverage": {
+    "status": "partial",
+    "matched": 2,
+    "unmatched": 1,
+    "duplicates": 0,
+    "rejected": 0,
+    "omitted": 0
+  },
+  "cleanup": {
+    "status": "released"
+  },
+  "raw_snapshot_refs": [
+    "sha256:df4b69b2251423505e2bc6c33ca12237873f9364e49f40703feacc82baaaf7fd"
+  ],
+  "normalization_rule_version": "otel-file/0.1"
+}

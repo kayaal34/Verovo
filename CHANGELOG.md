@@ -1,3 +1,15 @@
+## v0.17.0 - 2026-11-23
+
+### Added
+
+- **`verovo spend-actions --case AUDIT_CASE`** projects an existing Audit Case into a line-level buyer worklist with `ready_for_payment`, `evidence_required`, `review_required`, `unreviewed` and `settled` actions, owner roles, reasons, finding links and per-currency amount coverage. Only manifest-confirmed clean lines can become ready for payment; the command never executes or authorizes payment.
+- **`verovo provider check --manifest MANIFEST`** validates a REA-inspired `verovo.provider-manifest/0.1` document and computes local `admit`, `degrade` or `refuse` admission from explicit readiness checks, engine identity, resource limits, coverage and cleanup state. It never claims live engine contact or production completeness.
+- Added Provider Manifest and Spend Action List JSON Schemas, a digest-checked synthetic Provider example, and documentation for both workflows.
+
+### Tests
+
+- 647 healthcheck tests, 66 root tests, 430 Buyer Ledger tests and 91 Lab tests pass locally. Both new CLI workflows pass end to end; the Audit golden case remains valid, and generated vocabularies stay in sync. These are synthetic and conformance checks, not a real customer disposition, live provider integration or runtime spending-control verification.
+
 ## v0.16.2 - 2026-11-23
 
 ### Changed

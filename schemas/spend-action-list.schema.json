@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://verovo.dev/schemas/spend-action-list.schema.json",
+  "title": "Verovo Spend Action List",
+  "description": "A read-only buyer worklist projected from an existing Audit Case. Recommendations do not execute or authorize payment.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "case_id",
+    "buyer",
+    "vendor",
+    "period",
+    "actions",
+    "summary",
+    "executes_payment",
+    "buyer_decision_required"
+  ],
+  "properties": {
+    "schema": {"const": "verovo.spend-action-list/0.1"},
+    "case_id": {"type": "string", "minLength": 1},
+    "buyer": {"type": "string", "minLength": 1},
+    "vendor": {"type": "string", "minLength": 1},
+    "period": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "string"},
+        "end": {"type": "string"}
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/actionEntry"}
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["counts", "amounts"],
+      "properties": {
+        "counts": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "amounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "currency", "known_value", "unknown_count"],
+            "properties": {
+              "action": {"$ref": "#/$defs/action"},
+              "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+              "known_value": {
+                "type": ["string", "null"],
+                "pattern": "^-?\\d+\\.\\d{2}$"
+              },
+              "unknown_count": {"type": "integer", "minimum": 0}
+            }
+          }
+        }
+      }
+    },
+    "executes_payment": {"type": "boolean", "const": false},
+    "buyer_decision_required": {"type": "boolean", "const": true}
+  },
+  "$defs": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "evidence_required",
+        "review_required",
+        "unreviewed",
+        "ready_for_payment",
+        "settled"
+      ]
+    },
+    "amount": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["currency", "value"],
+      "properties": {
+        "currency": {"type": "string", "pattern": "^[A-Z]{3}$"},
+        "value": {"type": "string", "pattern": "^-?\\d+\\.\\d{2}$"}
+      }
+    },
+    "actionEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_id",
+        "source",
+        "charge_id",
+        "action",
+        "owner_role",
+        "reason",
+        "finding_ids",
+        "amount"
+      ],
+      "properties": {
+        "entry_id": {"type": "string", "minLength": 1},
+        "source": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": {"type": "string", "enum": ["invoice_line", "finding"]},
+            "path": {"type": "string"},
+            "line_id": {"type": "string"},
+            "finding_id": {"type": "string"}
+          }
+        },
+        "charge_id": {"type": ["string", "null"]},
+        "action": {"$ref": "#/$defs/action"},
+        "owner_role": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "finding_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "amount": {"$ref": "#/$defs/amount"}
+      }
+    }
+  }
+}

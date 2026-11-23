@@ -1,0 +1,21 @@
+{
+  "schema": "verovo.synthetic-otel-snapshot/0.1",
+  "records": [
+    {
+      "operation_id": "op-research-1",
+      "tool": "web_search",
+      "status": "completed"
+    },
+    {
+      "operation_id": "op-research-2",
+      "tool": "web_fetch",
+      "status": "completed"
+    },
+    {
+      "operation_id": "op-unmatched-3",
+      "tool": "unknown_tool",
+      "status": "unknown"
+    }
+  ],
+  "note": "Synthetic input used only to pin the Provider Manifest snapshot digest; it is not a real customer trace."
+}
