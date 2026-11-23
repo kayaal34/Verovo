@@ -183,6 +183,16 @@ def resolve_open_item(items: List[Dict[str, Any]], kind: str, record_id: str, de
             item["resolution"] = detail
 
 
+def task_coverage(tasks: Dict[str, Dict[str, Any]], runs: Dict[str, Dict[str, Any]],
+                  outcomes: List[Dict[str, Any]]) -> Dict[str, int]:
+    tasks_with_run = {_text(run.get("task_id")) for run in runs.values()}
+    tasks_with_outcome = {_text(item.get("task_id")) for item in outcomes}
+    return {
+        "tasks_without_run": sum(1 for task_id in tasks if task_id not in tasks_with_run),
+        "tasks_without_outcome": sum(1 for task_id in tasks if task_id not in tasks_with_outcome),
+    }
+
+
 def intake(bundle: Path) -> Dict[str, Any]:
     """Read a bundle and return {case, report}; never writes files itself."""
     bundle = Path(bundle).resolve()
@@ -633,12 +643,7 @@ def intake(bundle: Path) -> Dict[str, Any]:
         "boundary": ("matched/difference/unknown 只描述对账，不决定分摊；缺侧或缺字段不是零，"
                      "同一供应商的两个导出也不是买方独立验证。"),
     }
-    report["coverage"] = {
-        "tasks_without_run": sum(1 for task_id in tasks if not any(
-            run.get("task_id") == task_id for run in runs.values())),
-        "tasks_without_outcome": sum(1 for task_id in tasks if not any(
-            item["task_id"] == task_id for item in outcomes)),
-    }
+    report["coverage"] = task_coverage(tasks, runs, outcomes)
     report["status"] = "blocked" if not tasks else ("partial" if active_open_items else "complete")
     report["case_id"] = _text(manifest.get("case_id"))
     report["currency"] = currency
