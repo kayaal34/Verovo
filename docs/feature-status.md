@@ -1,6 +1,6 @@
 # Verovo: implementation status
 
-**Current development release, 2026-11-23 · [v0.17.1](../CHANGELOG.md).** This documentation patch refreshes the package introduction for the v0.17.0 line-level spend-action worklist and local Provider Manifest admission, while preserving the v0.16.2 `PeriodCase/CaseRepository`, linear task-coverage accounting, atomic reproduce creation and HALF_UP display contracts. Canonical verdicts, signed revisions and proof boundaries remain unchanged.
+**Current install release, 2026-11-23 · [v0.17.1](../CHANGELOG.md).** This documentation patch refreshes the package introduction for the v0.17.0 line-level spend-action worklist and local Provider Manifest admission, while preserving the v0.16.2 `PeriodCase/CaseRepository`, linear task-coverage accounting, atomic reproduce creation and HALF_UP display contracts. Canonical verdicts, signed revisions and proof boundaries remain unchanged.
 
 Earlier baseline reviewed 2026-11-04 against the **v0.13.0 release**. Available means local implementation, not production validation on every platform.
 
