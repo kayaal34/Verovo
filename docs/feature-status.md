@@ -1,6 +1,6 @@
 # Verovo: implementation status
 
-**Current install release, 2026-11-23 · [v0.17.1](../CHANGELOG.md).** This documentation patch refreshes the package introduction for the v0.17.0 line-level spend-action worklist and local Provider Manifest admission, while preserving the v0.16.2 `PeriodCase/CaseRepository`, linear task-coverage accounting, atomic reproduce creation and HALF_UP display contracts. Canonical verdicts, signed revisions and proof boundaries remain unchanged.
+**Current development release, 2026-11-23 · [v0.17.2](../CHANGELOG.md).** This patch binds clean payment recommendations to exact invoice bytes and contract versions, independently verifies settlement from credit evidence, and adds explicit three-minor-unit currency support while preserving the v0.16.2 `PeriodCase/CaseRepository`, linear task-coverage accounting, atomic reproduce creation and HALF_UP display contracts. Canonical verdicts, signed revisions and proof boundaries remain unchanged.
 
 Earlier baseline reviewed 2026-11-04 against the **v0.13.0 release**. Available means local implementation, not production validation on every platform.
 
@@ -44,9 +44,9 @@ Intake preserves `source_party`, `source_affiliation`, `control_domain`, `collec
 
 This is a deterministic **procedural metadata consistency check**, not cryptographic proof, external identity verification, or proof that the declared reviewer actually acted independently. The vendor-path guard only catches explicit known markers; a disguised or undocumented control path can evade string matching. Legacy records that carried only the old three self-declared fields no longer qualify as buyer evidence. The existing verdict vocabulary and `Invoice Matched` output key remain for compatibility.
 
-## Spend actions and Provider admission (v0.17.0)
+## Spend actions and Provider admission (v0.17.x)
 
-`verovo spend-actions --case AUDIT_CASE` reads an existing Audit Case and its invoice sources. It emits `verovo.spend-action-list/0.1` with five separate actions: explicitly clean lines are `ready_for_payment`; open evidence gaps are `evidence_required`; other open findings are `review_required`; unflagged but not explicitly clean lines remain `unreviewed`; realized lines are `settled`. Owner roles and reasons are attached to each row. Amounts use decimal strings, remain separated by action and currency, and carry unknown counts rather than fabricated zeros. The command is a local projection only: it does not execute or authorize payment, and the buyer's actual disposition remains a separate record.
+`verovo spend-actions --case AUDIT_CASE` reads an existing Audit Case and its invoice sources. It emits `verovo.spend-action-list/0.1` with six actions: `ready_for_payment`, `evidence_required`, `review_required`, `unreviewed`, `partially_settled` and `settled`. Only versioned `charge_reviews` can make a line ready: invoice path, line ID, source SHA-256, contract version, reviewer and review time must match. Legacy `clean_charge_lines` alone does not clear a line, and changed bytes invalidate the previous review. `realized` no longer implies settled: a credit must be applied and match the finding amount, currency and charge identity. Partial credits produce `partially_settled`; missing, unapplied or mismatched evidence remains `review_required`. Missing affected lines and duplicate finding IDs fail closed. Amounts use the shared Money Contract, including three minor units for BHD/IQD/JOD/KWD/LYD/OMR/TND, and invoice-line and case-level amounts are reported separately. The command is a local projection only: it does not execute or authorize payment, and the buyer's actual disposition remains a separate record.
 
 `verovo provider check --manifest MANIFEST` validates `verovo.provider-manifest/0.1` and emits local `admit`, `degrade` or `refuse` admission. Required check failure/unknown and retained/unknown cleanup refuse; optional check failure/unknown degrades. Process engines require an executable SHA-256. Resource limits and coverage counts are strict integers, raw snapshot references are digest-bound, and output always states `live_engine_contacted=false`. This is an adapter contract, not an OTel/LiteLLM/Langfuse live integration, a control effectiveness claim or proof of complete production coverage.
 
@@ -70,7 +70,7 @@ Reliability behavior: largest-remainder allocation preserves cents and zero weig
 
 ## Verification in this working tree and remaining boundaries
 
-- PASS: 647 healthcheck unit tests via healthcheck discovery, 66 root tests, 430 Buyer Ledger tests, 91 Lab tests, and `python3 healthcheck/verovo selftest`.
+- PASS: 658 healthcheck unit tests via healthcheck discovery, 69 root tests, 430 Buyer Ledger tests, 91 Lab tests, and `python3 healthcheck/verovo selftest`.
 - PASS: metric vectors 22/22, outcome-audit vectors 15/15, delegation vectors 23/23, SSE vectors 2/2; external fixture runners, receipt/correlation vectors, aggregate-join, replay-digest, commerce-retry and conformance-pack selftest. Metric registry and generated vocabulary checks also pass.
 - The canonical fixture and new adversarial cases are synthetic. No real customer close, supplier dataset, production identity flow, external signature, cryptographic attestation or OCR accuracy was validated.
 - Supported canonical scope remains known CSV/JSONL, one vendor/account/currency, approved per-unit pricing and approved allocation drivers. Unsupported formats and cross-scope input fail closed. General contract parsing, arbitrary invoice layouts, tax/credit/refund/FX handling, external business-system confirmation and real-world independence remain outside the verified boundary.

@@ -33,10 +33,13 @@ python3 -m unittest discover -s tests
 ```
 
 `spend-actions` produces a review worklist, not a payment instruction. Only
-`clean_charge_lines` can become `ready_for_payment`; affected lines become
-`evidence_required`, `review_required` or `settled`, and an unflagged line that
-was not explicitly confirmed clean remains `unreviewed`. The buyer's actual
-payment, hold, evidence request or vendor review is recorded separately.
+versioned `charge_reviews` can become `ready_for_payment`: each review binds
+invoice path, line ID, the actual invoice SHA-256, `contract_version`, reviewer
+and review time. Legacy `clean_charge_lines` alone does not clear a line, and
+changed invoice bytes invalidate the old review. `realized` becomes `settled`
+only when the applied credit matches amount, currency and charge identity;
+partial credit produces `partially_settled`. The buyer's actual payment, hold,
+evidence request or vendor review is recorded separately.
 
 ## Reading the case
 
