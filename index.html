@@ -3,25 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Verovo | Make every dollar spent on AI services make sense</title>
-  <meta name="description" content="Verovo brings supplier rules, invoices, usage and delivery records into one buyer review, helping teams check charges, accept delivery and renew with confidence.">
+  <title>Verovo | Independent measurement and audit for AI agents</title>
+  <meta name="description" content="Audit agent and tool charges, connect spending to verified task outcomes, and decide what to pay, fix or compare next with Verovo.">
   <link rel="icon" type="image/svg+xml" href="./assets/favicon.svg">
   <link rel="canonical" href="https://roy-tong.github.io/Verovo/">
   <meta name="theme-color" content="#090C10">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Verovo">
-  <meta property="og:title" content="Verovo | Make every dollar spent on AI services make sense">
-  <meta property="og:description" content="Bring supplier rules, invoices, usage and delivery records into one buyer review.">
+  <meta property="og:title" content="Verovo | Independent measurement and audit for AI agents">
+  <meta property="og:description" content="Audit every charge. Measure every outcome. Turn one agent billing period into clear buyer actions and task economics.">
   <meta property="og:url" content="https://roy-tong.github.io/Verovo/">
   <meta property="og:image" content="https://roy-tong.github.io/Verovo/assets/social-preview.png">
   <meta property="og:image:width" content="1280">
   <meta property="og:image:height" content="640">
-  <meta property="og:image:alt" content="Verovo: clear AI service spending and delivery">
+  <meta property="og:image:alt" content="Verovo: independent measurement and audit for AI agents">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Verovo | Make every dollar spent on AI services make sense">
-  <meta name="twitter:description" content="Bring supplier rules, invoices, usage and delivery records into one buyer review.">
+  <meta name="twitter:title" content="Verovo | Independent measurement and audit for AI agents">
+  <meta name="twitter:description" content="Audit agent and tool charges, connect spending to verified outcomes, and prepare clear buyer actions.">
   <meta name="twitter:image" content="https://roy-tong.github.io/Verovo/assets/social-preview.png">
-  <meta name="twitter:image:alt" content="Verovo: clear AI service spending and delivery">
+  <meta name="twitter:image:alt" content="Verovo: independent measurement and audit for AI agents">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -34,7 +34,7 @@
     "@type": "SoftwareApplication",
     "name": "Verovo",
     "applicationCategory": "BusinessApplication",
-    "description": "Verovo brings supplier rules, invoices, usage and delivery records into one buyer review for charges, delivery and task economics.",
+    "description": "Verovo is the independent measurement and audit layer for AI agents. It reviews charges, prepares line-level spend actions and connects task costs to verified outcomes.",
     "url": "https://roy-tong.github.io/Verovo/",
     "codeRepository": "https://github.com/roy-tong/verovo",
     "license": "https://opensource.org/license/mit",
@@ -71,63 +71,63 @@
     <section class="hero" aria-label="Introduction">
       <div class="hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow reveal">OVO · PROVE ANYTHING / ACCOUNTABLE AI SPEND</p>
-          <h1 class="reveal d1">Make every dollar spent on AI services <em>make sense.</em></h1>
-          <p class="lede reveal d2">Verovo brings supplier rules, invoices, usage and delivery records into one buyer review. See what you bought, what was delivered and whether it is time to accept, remediate or renew.</p>
+          <p class="eyebrow reveal">THE INDEPENDENT MEASUREMENT AND AUDIT LAYER FOR AI AGENTS</p>
+          <h1 class="reveal d1">Audit every charge. Measure every <em>outcome.</em></h1>
+          <p class="lede reveal d2">Verovo connects agent and tool charges to verified task outcomes. See which lines can move forward, which need evidence or review, and which supplier or workflow is worth choosing next.</p>
           <div class="hero-actions reveal d4">
-            <a class="btn btn-primary" href="first-look.html#contact">Start a buyer review</a>
+            <a class="btn btn-primary" href="first-look.html#contact">Bring a supplier period</a>
             <a class="btn btn-ghost" href="examples/buyer-review.html">See a review</a>
             <a class="btn btn-ghost" href="examples/replayable-period.html">Replay a period</a>
           </div>
-          <p class="note reveal d5" style="margin-top:14px"><strong data-release-version="cli">Current CLI release: v0.16.1</strong> on <a href="https://github.com/roy-tong/Verovo/releases/latest" target="_blank" rel="noopener">GitHub</a> and <a href="https://pypi.org/project/verovo/" target="_blank" rel="noopener">PyPI</a>. Open-source CLI, MCP and Provider SDK.</p>
+          <p class="note reveal d5" style="margin-top:14px"><strong data-release-version="cli">Current CLI release: v0.17.0</strong> on <a href="https://github.com/roy-tong/Verovo/releases/latest" target="_blank" rel="noopener">GitHub</a> and <a href="https://pypi.org/project/verovo/" target="_blank" rel="noopener">PyPI</a>. Open-source CLI, MCP and Provider SDK.</p>
         </div>
 
-        <div class="console reveal d2" id="console" aria-label="Synthetic task economics example">
+        <div class="console reveal d2" id="console" aria-label="Synthetic spend action list example">
           <div class="console-bar">
             <span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span><span class="dot" aria-hidden="true"></span>
-            <span class="console-title">verovo economics --case task-economics.json</span>
+            <span class="console-title">verovo spend-actions --case audit-case.json</span>
             <button class="console-replay" id="console-replay" type="button" title="Replay report">replay</button>
           </div>
           <div class="console-body" id="console-body">
-            <div class="cline"><span class="tag-ok">✓ TASKS</span><span class="path"> business tasks connected to runs</span><span class="num right">2</span></div>
-            <div class="cline"><span class="k">direct + allocated costs</span><span class="num right">USD 43.50</span></div>
+            <div class="cline"><span class="tag-unknown">! EVIDENCE</span><span class="path"> lines or outcomes needing more support</span><span class="num right">3</span></div>
+            <div class="cline"><span class="tag-unknown">! REVIEW</span><span class="path"> open billing or allocation findings</span><span class="num right">4</span></div>
             <div class="cline rule"></div>
-            <div class="cline"><span class="tag-ok">✓ VERIFIED</span><span class="path"> successful task outcomes</span><span class="num right">1</span></div>
-            <div class="cline"><span class="k">verified business value</span><span class="num right">USD 100.00</span></div>
+            <div class="cline"><span class="tag-ok">✓ READY</span><span class="path"> explicitly clean lines for buyer processing</span><span class="num right">2</span></div>
+            <div class="cline"><span class="k">ready amount</span><span class="num right">USD 120.00</span></div>
             <div class="cline rule"></div>
-            <div class="cline"><span class="k">cost per verified success</span><span class="num right">USD 43.50</span></div>
-            <div class="cline"><span class="k">return on investment</span><span class="num-warn right">1.2989</span></div>
+            <div class="cline"><span class="k">unreviewed</span><span class="num right">1</span></div>
+            <div class="cline"><span class="k">settled</span><span class="num-warn right">1</span></div>
             <div class="cline cursor-line"><span class="cursor" aria-hidden="true">▌</span></div>
           </div>
-          <div class="console-foot"><span class="mono-xs">Synthetic task-economics example · reproduce locally</span><span class="mono-xs dim">from invoice to business value</span></div>
+          <div class="console-foot"><span class="mono-xs">Offline synthetic Audit Case · buyer decides what happens next</span><span class="mono-xs dim">from invoice to action</span></div>
         </div>
       </div>
 
       <div class="status-strip reveal d5" role="list" aria-label="Project status">
         <div class="status" role="listitem"><span class="status-k">Open source</span><span class="status-v ok">MIT</span></div>
-        <div class="status" role="listitem"><span class="status-k">CLI</span><span class="status-v ok" data-release-version="v-pypi">v0.16.1 · PyPI</span></div>
+        <div class="status" role="listitem"><span class="status-k">CLI</span><span class="status-v ok" data-release-version="v-pypi">v0.17.0 · PyPI</span></div>
         <div class="status" role="listitem"><span class="status-k">Interfaces</span><span class="status-v ok">CLI · MCP · SDK</span></div>
-        <div class="status" role="listitem"><span class="status-k">Buyer workflows</span><span class="status-v ok">Charges · Delivery · Economics</span></div>
+        <div class="status" role="listitem"><span class="status-k">Buyer workflows</span><span class="status-v ok">Spend actions · Delivery · Economics</span></div>
         <div class="status" role="listitem"><span class="status-k">Tool bills</span><span class="status-v spec">26 cataloged</span></div>
       </div>
     </section>
 
     <section class="section" id="value" aria-label="Buyer value"><div class="wrap">
-      <h2 class="reveal">A total invoice cannot make the renewal decision for you.</h2>
-      <p class="body-secondary reveal">Finance sees the total. Operations sees the tasks. Engineering sees the calls and retries. Verovo connects those views so everyone can discuss the same supplier with the same facts.</p>
+      <h2 class="reveal">A total invoice cannot tell you what to do next.</h2>
+      <p class="body-secondary reveal">Finance sees the total. Operations sees the tasks. Engineering sees the calls and retries. Verovo connects those views without turning them into one opaque score.</p>
       <div class="who-grid">
-        <div class="who-card reveal"><span class="who-k">For finance and procurement</span><p>Recalculate supported charges with the applicable supplier rules and bring a clear record into reconciliation and renewal.</p></div>
-        <div class="who-card reveal"><span class="who-k">For business owners</span><p>Check actual delivery against your own acceptance criteria and decide whether to accept, adjust scope or request remediation.</p></div>
-        <div class="who-card reveal"><span class="who-k">For engineering teams</span><p>Connect runs, usage, retries and outcomes so technical activity can explain the business cost.</p></div>
+        <div class="who-card reveal"><span class="who-k">For finance and procurement</span><p>Recalculate supported charges and give each line a next action, an owner role and a reason for payment review.</p></div>
+        <div class="who-card reveal"><span class="who-k">For business owners</span><p>Check delivery against your own acceptance criteria and keep delivery, billing and economic value as separate answers.</p></div>
+        <div class="who-card reveal"><span class="who-k">For engineering teams</span><p>Connect runs, usage and outcomes while preserving adapter versions, source trust, resource limits and evidence coverage.</p></div>
       </div>
     </div></section>
 
     <section class="section section-panel" id="answers" aria-label="Three business answers"><div class="wrap">
       <h2 class="reveal">Three answers every AI buyer needs.</h2>
       <div class="who-grid">
-        <div class="who-card reveal"><span class="who-k">Are the charges right?</span><p>Compare supplier rules, usage and invoice records. See exactly which charge matches and where a difference deserves discussion.</p><span class="who-v">Charge review</span></div>
+        <div class="who-card reveal"><span class="who-k">What should happen to this charge?</span><p>Turn an existing Audit Case into ready, evidence, review, unreviewed and settled actions. Only explicitly clean lines become ready for payment.</p><span class="who-v">Spend action list</span></div>
         <div class="who-card reveal"><span class="who-k">Was the work delivered?</span><p>Evaluate observed work against your acceptance criteria, with the records behind each conclusion ready to inspect.</p><span class="who-v">Delivery review</span></div>
-        <div class="who-card reveal"><span class="who-k">Was it worth paying for?</span><p>Connect direct and allocated costs with verified outcomes to understand cost per verified success and return on investment.</p><span class="who-v">Task economics</span></div>
+        <div class="who-card reveal"><span class="who-k">Which option is worth choosing?</span><p>Connect direct and allocated costs with verified outcomes to compare suppliers, workflows and delivery choices.</p><span class="who-v">Task economics</span></div>
       </div>
       <div class="trial-actions"><a class="btn btn-primary" href="examples/buyer-review.html">Open the buyer review</a><a class="btn btn-ghost" href="first-look.html#contact">Bring your supplier period</a></div>
     </div></section>
@@ -136,13 +136,14 @@
       <h2 class="reveal">From one billing period to a clear next move.</h2>
       <div class="trial-points">
         <div class="trial-point"><span class="trial-k">1 · Bring the period</span><p>Gather the supplier’s rules, invoice, usage and delivery records.</p></div>
-        <div class="trial-point"><span class="trial-k">2 · Review the answers</span><p>See charges, delivery and evidence coverage side by side.</p></div>
-        <div class="trial-point"><span class="trial-k">3 · Discuss the differences</span><p>Give business, finance and engineering one shared set of findings and next actions.</p></div>
-        <div class="trial-point"><span class="trial-k">4 · Replay and decide</span><p>Reproduce the report, preserve the signed revision and use it for acceptance or renewal.</p></div>
+        <div class="trial-point"><span class="trial-k">2 · Review separately</span><p>See charges, delivery and evidence coverage as independent conclusions.</p></div>
+        <div class="trial-point"><span class="trial-k">3 · Assign the action</span><p>Give each open line an owner and reason; record the buyer’s actual decision separately.</p></div>
+        <div class="trial-point"><span class="trial-k">4 · Replay and compare</span><p>Reproduce the evidence and use task economics for acceptance, renewal or procurement.</p></div>
       </div>
       <div class="terminal" style="margin-top:30px"><div class="terminal-body"><pre style="white-space:pre-wrap">pipx install verovo
-verovo review --sample --html buyer-review.html --json buyer-review.json</pre></div></div>
-      <p><a href="examples/replayable-period.html">Replay a synthetic billing period</a> and see how Intake → Recompute → Review → Decide becomes a portable record.</p>
+verovo review --sample --html buyer-review.html --json buyer-review.json
+python3 healthcheck/verovo spend-actions --case examples/audit-golden-case/audit-case.json</pre></div></div>
+      <p>The second command runs from a source checkout. Both examples are synthetic and local. <a href="examples/replayable-period.html">Replay a billing period</a> to inspect the proof chain.</p>
     </div></section>
 
     <section class="section section-panel" id="economics" aria-label="Task economics"><div class="wrap">
@@ -150,8 +151,8 @@ verovo review --sample --html buyer-review.html --json buyer-review.json</pre></
       <p class="body-secondary reveal">Connect business tasks, agent runs, usage, invoices and verified outcomes. Compare the economics of suppliers, workflows and delivery choices with one consistent view.</p>
       <div class="who-grid">
         <div class="who-card reveal"><span class="who-k">Direct and allocated cost</span><p>See where money goes across tasks, shared infrastructure and supplier charges.</p></div>
-        <div class="who-card reveal"><span class="who-k">Cost per verified success</span><p>Compare the cost of outcomes your business has actually accepted.</p></div>
-        <div class="who-card reveal"><span class="who-k">Scenario planning</span><p>Test supplier, retry and workflow assumptions before making the next operating decision.</p></div>
+        <div class="who-card reveal"><span class="who-k">Cost per verified success</span><p>Compare the cost of outcomes your business has actually accepted, with outcome coverage beside the ratio.</p></div>
+        <div class="who-card reveal"><span class="who-k">Scenario planning</span><p>Test supplier, retry and workflow assumptions before making the next operating or procurement decision.</p></div>
       </div>
       <div class="terminal" style="margin-top:30px"><div class="terminal-body"><pre style="white-space:pre-wrap">python3 healthcheck/verovo intake --bundle examples/period-bundle --out ./period-out
 python3 healthcheck/verovo economics --case ./period-out/case.json --markdown economics.md
@@ -177,23 +178,24 @@ python3 healthcheck/verovo drivers --case ./period-out/case.json</pre></div></di
 
     <section class="section section-panel" id="developers" aria-label="Open-source toolkit"><div class="wrap">
       <h2 class="reveal">A buyer toolkit you can run, inspect and extend.</h2>
-      <p class="body-secondary reveal">Use the CLI directly, connect your agent through MCP, or build supplier-side measurement with the Provider SDK. The rules, conformance vectors and reproductions are public.</p>
+      <p class="body-secondary reveal">Use the CLI directly, connect your agent through MCP, or build supplier-side measurement with the Provider SDK. Rules, adapter contracts, conformance vectors and reproductions are public.</p>
       <div class="who-grid">
-        <div class="who-card reveal"><span class="who-k">Buyer CLI</span><p>Review charges and delivery, recount supported invoices and calculate task economics locally.</p></div>
-        <div class="who-card reveal"><span class="who-k">MCP</span><p>Bring buyer review and recounting into your existing agent workflow.</p></div>
-        <div class="who-card reveal"><span class="who-k">Provider SDK</span><p>Emit portable observations from your own AI services and tools.</p></div>
+        <div class="who-card reveal"><span class="who-k">Buyer CLI</span><p>Review charges and delivery, prepare spend actions, recount supported invoices and calculate task economics locally.</p></div>
+        <div class="who-card reveal"><span class="who-k">Provider contract</span><p>Check engine identity, readiness, resource limits, evidence coverage and cleanup before an adapter is admitted locally.</p></div>
+        <div class="who-card reveal"><span class="who-k">MCP and Provider SDK</span><p>Bring buyer review into an existing agent workflow or emit portable observations from your own services.</p></div>
       </div>
       <div class="dev-links reveal d5">
         <a href="https://github.com/roy-tong/verovo/blob/main/docs/buyer-review.md" target="_blank" rel="noopener">Buyer guide&nbsp;↗</a>
-        <a href="https://www.npmjs.com/package/@verovo/mcp" target="_blank" rel="noopener">Provider SDK&nbsp;↗</a>
+        <a href="https://github.com/roy-tong/verovo/blob/main/docs/provider-contract.md" target="_blank" rel="noopener">Provider contract&nbsp;↗</a>
+        <a href="https://github.com/roy-tong/verovo/blob/main/docs/feature-status.md" target="_blank" rel="noopener">Current capabilities&nbsp;↗</a>
         <a href="https://github.com/roy-tong/verovo/tree/main/conformance" target="_blank" rel="noopener">Conformance&nbsp;↗</a>
         <a href="releases.html">Release notes&nbsp;→</a>
       </div>
     </div></section>
 
     <section class="section" id="start" aria-label="Start a review"><div class="wrap">
-      <h2 class="reveal">Start with one supplier and one period.</h2>
-      <p class="body-secondary reveal">Bring the decision you need to make. Verovo will help you turn the records into a clear basis for reconciliation, acceptance or renewal.</p>
+      <h2 class="reveal">Start with one supplier, one period and one decision.</h2>
+      <p class="body-secondary reveal">Bring the decision you need to make. Verovo will help you turn the records into a clear basis for payment review, acceptance, renewal or procurement.</p>
       <div class="trial-actions"><a class="btn btn-primary" href="first-look.html#contact">Describe your buyer task</a><a class="btn btn-ghost" href="examples/buyer-review.html">Run the example first</a></div>
     </div></section>
   </main>
@@ -204,7 +206,7 @@ python3 healthcheck/verovo drivers --case ./period-out/case.json</pre></div></di
         <div class="footer-brand"><span class="brand"><span class="brand-plate"><img class="brand-mark" src="./assets/verovo-mark.png" alt="" width="42" height="23"></span>Verovo<span class="brand-cursor" aria-hidden="true">_</span></span><p>Make every dollar spent on AI services make sense.</p></div>
         <nav class="footer-col" aria-label="Review"><span class="footer-k">Review</span><a href="first-look.html">Buyer review</a><a href="examples/replayable-period.html">Replay a period</a><a href="tools.html">Tool bill coverage</a><a href="claims.html">Claims and reproductions</a></nav>
         <nav class="footer-col" aria-label="Project"><span class="footer-k">Project</span><a href="https://github.com/roy-tong/verovo">GitHub</a><a href="releases.html">Release notes</a><a href="https://github.com/roy-tong/verovo/blob/main/ROADMAP.md">Roadmap</a><a href="faq.html">FAQ · 常见问题</a></nav>
-        <nav class="footer-col" aria-label="OVO"><span class="footer-k">OVO · Prove Anything</span><a href="https://roy-tong.github.io/Askovo/">Askovo for product judgment</a><a href="https://roy-tong.github.io/Growovo/">Growovo for continuous growth</a></nav>
+        <nav class="footer-col" aria-label="Community"><span class="footer-k">Community</span><a href="https://discord.gg/UqrM8MCXb">Discord</a><a href="https://x.com/elliwoodtong">X / Twitter</a><a href="https://roy-tong.github.io/Askovo/">Askovo</a><a href="https://roy-tong.github.io/Growovo/">Growovo</a></nav>
         <nav class="footer-col" aria-label="Methods"><span class="footer-k">Methods &amp; examples</span><a href="blog/ai-invoice-reconciliation.html">Invoice reconciliation</a><a href="blog/outcome-yardstick.html">Outcome yardstick</a><a href="blog/context-availability.html">Context availability</a><a href="examples/healthcheck-report.html">Healthcheck report</a></nav>
       </div>
       <div class="footer-bottom"><span>MIT open source. Built in the open.</span><span class="footer-epigraph">Generate Anything. Prove What Matters.</span></div>

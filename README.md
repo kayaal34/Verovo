@@ -2,11 +2,12 @@
 
 Live: https://roy-tong.github.io/Verovo/
 
-Static HTML, CSS and JavaScript. The main entry is an AI service buyer with a specific charge or delivery task. Support is an initial scenario, not the product boundary. Buyer services and fee mechanisms are under validation. Local developer tools and the existing free measurement runs retain their separate scope. Standards, SDK, claims and research remain supporting resources.
+Static HTML, CSS and JavaScript. Verovo is presented as the independent measurement and audit layer for AI agents: period spend actions, delivery review, control-effectiveness validation and private procurement comparison. Buyer services and fee mechanisms are under validation. Local developer tools and the existing free measurement runs retain their separate scope. Standards, SDK, claims and research remain supporting resources.
 
 ## Pages
 
-- `index.html`: two independent buyer workflows, main-preview review demo, task-fit entry, developer tools and technical evidence.
+- `index.html`: spend-action demo, charge/delivery/economics answers, task-fit entry, Provider contract and technical evidence.
+- `first-look.html`: three commissioning tasks — period charges and delivery, control effectiveness, private procurement comparison.
 - `examples/buyer-review.html`: generated synthetic output of the actual `review --sample` command.
 - `tools.html`: cataloged domestic/overseas tool bill coverage, buyer vs seller audit, local CDP collection and research cases. Cataloged is not live-validated.
 - `services.html`: canonical service terms, input requirements, application links and refunds.

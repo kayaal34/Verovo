@@ -32,7 +32,7 @@ h2.sect{margin-top:36px}
       "name": "AI 账单怎么核对？",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "三步：先拿到计费规则原文（按什么计费、什么算一次），再拿到可对账的记录（账单或用量导出），最后按供应商自己的规则复算一遍，并标出哪些行能结算、哪些行算不了。Verovo 的 verovo recount 命令内置 6 家 AI 客服供应商的规则集（Intercom Fin、Zendesk、HubSpot 等），verovo recount --list-vendors 直接打印，每条规则带来源和置信度；浏览器版 recount.html 不上传数据即可试。也可以带 20–100 行脱敏样本通过 GitHub issue #6 或官网免费任务页申请一次免费人工测量检查，24 小时内首次响应，样本合格后通常 48 小时内出结果。"
+        "text": "三步：先拿到计费规则原文（按什么计费、什么算一次），再拿到可对账的记录（账单或用量导出），最后按供应商自己的规则复算一遍，并标出哪些行能结算、哪些行算不了。Verovo 的 verovo recount 命令内置 6 家 AI 客服供应商的规则集（Intercom Fin、Zendesk、HubSpot 等），verovo recount --list-vendors 直接打印，每条规则带来源和置信度；浏览器版 recount.html 不上传数据即可试。已有 Audit Case 时，spend-actions 可生成逐行处置清单，但不执行或授权付款。也可以带 20–100 行脱敏样本通过 GitHub issue #6 或官网免费任务页申请一次免费人工测量检查，24 小时内首次响应，样本合格后通常 48 小时内出结果。"
       }
     },
     {
@@ -88,7 +88,7 @@ h2.sect{margin-top:36px}
       "name": "Verovo 是什么？收费吗？",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Verovo 是面向 AI 服务采购方的开源核验项目：费用核验（收费是否符合适用约定）和交付核验（实际工作是否达到明确的业务要求）是两条独立工作流，缺证据一律标注 UNPROVABLE（无法判断）而不是猜。收费口径：本地 CLI 工具和 SDK 免费开源；人工测量检查免费（20–100 行脱敏样本，24 小时首次响应、48 小时出结果）；企业级核验任务按个案确认范围与费用，没有公开价目，也不承诺追回。此前的 10/20 美元付费诊断已于 2026-10-21 下线，官网不再列任何付费条目。"
+        "text": "Verovo 是 Agent 经济的独立计量与核验层：一方面审计工具调用费用、授权与异常支出，另一方面把成本与买方验收连接起来，度量完成合格任务的成本和方案差异。现有本地功能包括费用与交付核验、spend-actions 逐行处置、Provider 准入和任务经济性；缺证据标注 UNPROVABLE，实时控制和公开 Benchmark 不是当前能力。收费口径：本地 CLI 工具和 SDK 免费开源；人工测量检查免费（20–100 行脱敏样本，24 小时首次响应、48 小时出结果）；企业级核验任务按个案确认范围与费用，没有公开价目，也不承诺追回。此前的 10/20 美元付费诊断已于 2026-10-21 下线，官网不再列任何付费条目。"
       }
     },
     {
@@ -156,7 +156,7 @@ h2.sect{margin-top:36px}
 <p class="aq">Q: AI 账单怎么核对 / AI 账单核对工具</p>
 <p>路径分三步：<strong>① 拿到计费规则原文</strong>（按什么计费、什么算「一次」）——供应商改规则等于改价格，Zendesk 2026-08-25 修订解决量分层文档就是最近的例子；<strong>② 拿到可对账的记录</strong>（账单或用量导出）；<strong>③ 按供应商自己的规则复算</strong>，并把「能结算的行」与「算不了的行」分开列。</p>
 <p>Verovo 的 <code>recount</code> 命令内置 6 家 AI 客服供应商的规则集（Intercom Fin、Zendesk、HubSpot 等），<code>verovo recount --list-vendors</code> 直接打印；每条规则带来源、日期和置信度等级，登记在 <a href="https://github.com/roy-tong/verovo/blob/main/healthcheck/verovo_healthcheck/vendor-rules.json">vendor-rules.json</a>，网页表格与本工具永不互相矛盾（见 <a href="claims.html">证据索引的供应商计费规则记分卡</a>）。<a href="recount.html">浏览器版复算</a>不上传数据即可试。</p>
-<p>不想自己跑？带 20–100 行脱敏样本，走 <a href="https://github.com/roy-tong/verovo/issues/6">issue #6 免费任务</a>或<a href="services.html">官网免费任务页</a>，24 小时内首次响应，样本合格后通常 48 小时内出检查结果。</p>
+<p>已有 Audit Case 时，<code>spend-actions</code> 还会把发现投影成逐行「可进入付款处理 / 待补证 / 待复核 / 未复核 / 已结算」清单，标明责任角色与原因；它只辅助买方处置，不执行或授权付款。</p><p>不想自己跑？带 20–100 行脱敏样本，走 <a href="https://github.com/roy-tong/verovo/issues/6">issue #6 免费任务</a>或<a href="services.html">官网免费任务页</a>，24 小时内首次响应，样本合格后通常 48 小时内出检查结果。</p>
 </div>
 
 <div class="qa" id="q2">
@@ -221,7 +221,7 @@ h2.sect{margin-top:36px}
 <div class="qa" id="q8">
 <h2>8. Verovo 是什么？收费吗？</h2>
 <p class="aq">Q: Verovo 是什么 / Verovo 收费吗</p>
-<p>Verovo 是面向 AI 服务采购方的开源核验项目：<strong>费用核验</strong>（收费是否符合适用约定、费用与用量能否对应）和<strong>交付核验</strong>（实际工作是否达到买方明确的业务要求）是两条独立工作流；缺证据一律标注 <strong>UNPROVABLE（无法判断）</strong>，不猜。核心用户是承担 AI 支出的业务、工程和团队负责人（<a href="https://github.com/roy-tong/verovo/blob/main/README.zh-CN.md">中文说明</a>）。</p>
+<p>Verovo 是 <strong>Agent 经济的独立计量与核验层</strong>：一方面审计工具调用费用、授权与异常支出，另一方面把成本与买方验收连接起来，度量完成合格任务的成本和方案差异。现有本地功能包括费用与交付核验、<code>spend-actions</code> 逐行处置、Provider 准入和任务经济性；缺证据一律标注 <strong>UNPROVABLE（无法判断）</strong>，实时控制和公开 Benchmark 不是当前能力（<a href="https://github.com/roy-tong/verovo/blob/main/README.zh-CN.md">中文说明</a>）。</p>
 <p>收费口径：<strong>本地 CLI 工具与 SDK 免费开源；人工测量检查免费</strong>（20–100 行脱敏样本，24 小时首次响应、48 小时出结果）；企业级核验任务按个案确认范围与费用，没有公开价目。<strong>此前的 $10/$20 付费诊断已于 2026-10-21 下线</strong>，官网不再列任何付费条目（<a href="services.html">免费任务页</a>）。</p>
 </div>
 
