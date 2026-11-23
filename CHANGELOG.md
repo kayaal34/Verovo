@@ -1,3 +1,13 @@
+## v0.17.1 - 2026-11-23
+
+### Changed
+
+- Replaced the stale package introduction with the current independent agent measurement and audit positioning, working install path, spend-action and Provider Manifest commands, task economics, evidence boundaries and development checks. No financial behavior or API contract changed.
+
+### Tests
+
+- The v0.17.0 behavior remains covered by 647 healthcheck tests, 66 root tests, 430 Buyer Ledger tests and 91 Lab tests. Package installation, both new CLI workflows, spec-drift and SEO checks pass.
+
 ## v0.17.0 - 2026-11-23
 
 ### Added
