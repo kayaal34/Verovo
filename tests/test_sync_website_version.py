@@ -30,12 +30,12 @@ class SyncWebsiteVersionTests(unittest.TestCase):
         self.assertEqual(expected, module.sync_text(expected, "1.2.3"))
 
     def test_repository_labels_match_package_version(self):
-        self.load_module()
+        version = self.load_module().package_version()
         completed = subprocess.run(
             [sys.executable, str(SCRIPT), "--check"], cwd=ROOT,
             capture_output=True, text=True)
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
-        self.assertIn("0.16.2", completed.stdout)
+        self.assertIn(version, completed.stdout)
 
 
 if __name__ == "__main__":
