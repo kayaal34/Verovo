@@ -2,6 +2,7 @@
 
 > **Status: pre-M1。核心机制与合成端到端流程已测试；真实平台、真实账期与跨周会话仍未验证。**
 > 本目录是独立的买方侧产品线；`product/MVP.md` 的 Provider 侧范围不受影响。
+> `pipx install verovo` 覆盖 healthcheck、canonical finance 与 canonical Proof；本目录的 `python3 -m buyer_ledger` close/reproduce 仍需从源码 checkout 运行，不随该 wheel 提供。
 
 **一句话**：把多平台账单与用量记录收进本地账本，按账户和币种分别回答“平台收了多少、按已确认价格应是多少、哪些记录还无法判断”。
 
@@ -27,7 +28,7 @@
 
 ```bash
 cd buyer-ledger
-python3 -m unittest discover -s tests -t .     # 当前 259 项测试（2026-11-18 最终回归计数）
+python3 -m unittest discover -s tests -t .     # Buyer Ledger 全量单元与回归测试
 
 # 可选：真实浏览器采集
 pip install playwright && playwright install chromium
@@ -62,7 +63,7 @@ python3 reconcile.py   # 输出 reconciliation.csv/.json + line-checks.csv + sam
 
 ## 可重放账期与安全公开副本
 
-`reproduce` 把事件、已批准规则、身份映射、差异分类和重放结果收进一个目录；`verify` 校验文件哈希并重跑输入指纹、revision、计数和指标。公开演示见 [examples/replayable-period](examples/replayable-period)。
+`reproduce` 把事件、已批准规则、身份映射、差异分类和重放结果收进一个目录；`verify` 校验文件哈希并重跑输入指纹、revision、计数和指标。构建先在同级临时目录完整落盘并自验，通过后才原子替换正式目录；失败不会留下半份新包，也不会改写 overwrite 前的旧包。公开演示见 [examples/replayable-period](examples/replayable-period)。
 
 ```bash
 B="python3 -m buyer_ledger"

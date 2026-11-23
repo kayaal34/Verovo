@@ -1,6 +1,6 @@
 # Verovo
 
-> Compare the billing rules, invoice, usage and delivery records for one period. Review charge differences, delivery against buyer criteria and gaps in coverage. Supplier self-attestation leaves buyer acceptance unproven. The signed report preserves the evidence for that revision.
+> Review one AI supplier for one billing period before acceptance or renewal. Verovo checks charges, delivery and evidence coverage separately. A signed report binds the revision, RuleMap and input fingerprint; replay agreement does not replace the buyer's business decision.
 
 OVO family boundary: Prove Anything is the family-level result-proof protocol candidate; an agent saying “done” remains a claim to verify. Verified Capability Factory is a gated research candidate, not a Verovo dependency. Verovo stays buyer-first and is not becoming a generalized verification platform; charges, delivery, coverage and buyer decisions remain separate.
 
@@ -35,6 +35,8 @@ OVO family boundary: Prove Anything is the family-level result-proof protocol ca
 - [Product definition](https://github.com/roy-tong/verovo/blob/main/docs/product-definition.md): buyer-first charges and delivery, independent workflows; provider extensions need a concrete transaction.
 - [Buyer review guide](https://github.com/roy-tong/verovo/blob/main/docs/buyer-review.md): local criteria and JSON evidence; separate verdicts, hashes and offline reports.
 - [Synthetic buyer report](https://roy-tong.github.io/Verovo/examples/buyer-review.html): charge match, unmet delivery requirement and missing evidence, kept separate.
+- [Replayable synthetic period](https://roy-tong.github.io/Verovo/examples/replayable-period.html): Intake → Recompute → Review → Decide, with delivery UNKNOWN and the buyer decision UNPROVEN.
+- Local quickstart: `pipx install verovo && verovo review --sample --html buyer-review.html`.
 
 ## Service and evidence limits
 

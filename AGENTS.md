@@ -110,7 +110,14 @@ asserted by a party other than the observer; or the method changed mid-window.
 
 Abstention is a valid output. See `standard/hard-questions.md` Q4.
 
-## 9. Before you push
+## 9. Current implementation boundaries
+
+- `buyer_ledger.period_case.PeriodCase` owns the read-only buyer-close projection; `CaseRepository` owns registered state paths, strict JSON reads and atomic case writes. `close.build_case` remains a compatibility facade.
+- `healthcheck/verovo_healthcheck/money.py` owns display rounding for task economics, optimization and cost drivers. Zero-decimal currency tolerances and allocation rules remain explicit separate contracts.
+- `reproduce` builds and verifies in a sibling staging directory before replacing the output. Canonical finance and usage replay remain separate engines and proof scopes.
+- The `verovo` wheel includes canonical proof commands. Pre-M1 `python3 -m buyer_ledger` close/reproduce commands are source-checkout tools and are not implied by `pipx install verovo`.
+
+## 10. Before you push
 
 ```bash
 cd healthcheck && python3 -m unittest discover -s tests
@@ -124,7 +131,7 @@ python3 conformance/runners/run_sse_usage.py
 
 CI red means do not merge. See `CI-DISCIPLINE.md`.
 
-## 10. What not to claim
+## 11. What not to claim
 
 - Do not state an attribution as a cause (invariant 14)
 - Do not present a participating-network observation as market share (QUALITY 2)

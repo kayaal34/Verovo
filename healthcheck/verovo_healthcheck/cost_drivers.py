@@ -13,7 +13,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
-from . import task_economics
+from . import money, task_economics
 
 DIMENSIONS = ("vendor", "category", "task_type", "model", "retry", "allocation")
 
@@ -27,7 +27,7 @@ def _dec(value: Any) -> Decimal:
 
 
 def _money(value: Decimal) -> str:
-    return str(value.quantize(Decimal("0.01")))
+    return money.display(value)
 
 
 def _tasks(case: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:

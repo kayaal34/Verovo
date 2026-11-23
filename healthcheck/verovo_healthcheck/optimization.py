@@ -16,7 +16,7 @@ import copy
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
-from . import cost_drivers, task_economics
+from . import cost_drivers, money, task_economics
 
 
 def _dec(value: Any) -> Decimal:
@@ -30,7 +30,7 @@ def _dec(value: Any) -> Decimal:
 def _money(value: Any) -> Optional[str]:
     if value is None:
         return None
-    return str(_dec(value).quantize(Decimal("0.01")))
+    return money.display(_dec(value))
 
 
 def _task_type(item: Dict[str, Any], tasks: Dict[str, Dict[str, Any]],

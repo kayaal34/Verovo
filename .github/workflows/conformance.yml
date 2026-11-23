@@ -337,6 +337,8 @@ jobs:
           /tmp/smoke/bin/pip install dist/*.whl
           /tmp/smoke/bin/verovo --version
           cd /tmp && /tmp/smoke/bin/verovo demo --no-history
+          /tmp/smoke/bin/verovo proof export --bundle "$GITHUB_WORKSPACE/healthcheck/tests/fixtures/canonical-finance" --out /tmp/verovo-period-proof --by release-smoke
+          /tmp/smoke/bin/verovo proof replay /tmp/verovo-period-proof --bundle "$GITHUB_WORKSPACE/healthcheck/tests/fixtures/canonical-finance"
           /tmp/smoke/bin/verovo selftest
           /tmp/smoke/bin/verovo recount --list-vendors
           /tmp/smoke/bin/verovo review --sample --html /tmp/buyer-review.html --json /tmp/buyer-review.json

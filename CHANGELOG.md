@@ -1,3 +1,22 @@
+## v0.16.1 - 2026-11-23
+
+Compatible architecture hardening for repeatable buyer-close work.
+
+### Changed
+
+- `PeriodCase` now owns the read-only buyer-close projection and `CaseRepository` owns registered state paths, strict JSON reads and atomic case writes. `close.build_case` remains compatible; malformed existing state fails loudly instead of looking like an absent artifact.
+- Period Intake precomputes task/run/outcome coverage sets instead of rescanning every source row per task. The 4,000-row synthetic benchmark falls from about 0.66 s to 0.071 s on the review machine with identical coverage output.
+- Money Contract v2 routes task economics, optimization and cost-driver display through the same HALF_UP rule. Booking, allocation and zero-decimal currency tolerance remain separate explicit contracts.
+
+### Fixed
+
+- `reproduce build` now writes and verifies a complete sibling staging directory before replacing the output. A failed build leaves no partial new bundle, and a failed overwrite preserves the previous bundle byte for byte.
+- Release smoke now exports and replays a canonical period proof from the installed wheel. Documentation distinguishes those installed commands from source-checkout pre-M1 Buyer Ledger workflows.
+
+### Tests
+
+- 59 root tests, 424 Buyer Ledger tests and 621 healthcheck tests pass locally; selftest, 21 vocabularies, metric registry and all 62 protocol vectors pass. SEO reports zero errors and warnings. These are synthetic/conformance checks, not a real customer close or supplier acceptance.
+
 ## v0.16.0 - 2026-11-22
 
 ### Added

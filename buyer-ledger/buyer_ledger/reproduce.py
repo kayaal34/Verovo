@@ -23,6 +23,8 @@ import html
 import json
 import shutil
 import tempfile
+import uuid
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -212,6 +214,58 @@ def classify_discrepancies(payload: Dict[str, Any]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def build_bundle(event_paths: List[Path], *, period: str, rule_map_path: Path,
+                 out_dir: Path, identity_map_path: Optional[Path] = None,
+                 closed_at: str = "", previous_revision: str = "",
+                 generated_at: Optional[datetime] = None,
+                 overwrite: bool = False, data_classification: str = "confidential",
+                 sharing_approved_by: str = "") -> Dict[str, Any]:
+    out = Path(out_dir)
+    if out.exists() and any(out.iterdir()) and not overwrite:
+        raise ReproduceError("输出目录非空：换个目录或显式 overwrite（避免覆盖旧证据）")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=out.name + ".tmp-", dir=str(out.parent)))
+    backup = out.parent / (out.name + ".backup-" + uuid.uuid4().hex)
+    had_original = out.exists()
+    try:
+        result = _build_bundle_direct(
+            event_paths, period=period, rule_map_path=rule_map_path, out_dir=staging,
+            identity_map_path=identity_map_path, closed_at=closed_at,
+            previous_revision=previous_revision, generated_at=generated_at,
+            overwrite=False, data_classification=data_classification,
+            sharing_approved_by=sharing_approved_by)
+        result["manifest"]["verify_command"] = "python3 -m buyer_ledger reproduce verify %s" % out
+        _write_json(staging / MANIFEST_NAME, result["manifest"])
+        verification = verify_bundle(staging)
+        if verification["verdict"] != "PASS":
+            raise ReproduceError("新重放包未通过自验，正式输出保持不变")
+        if had_original:
+            out.rename(backup)
+        try:
+            staging.rename(out)
+        except Exception:
+            if had_original and backup.exists() and not out.exists():
+                backup.rename(out)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
+        result["out"] = str(out)
+        result["paths"] = {
+            key: str(out / Path(value).relative_to(staging))
+            for key, value in result["paths"].items()
+        }
+        return result
+    except Exception:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        if had_original and backup.exists() and not out.exists():
+            backup.rename(out)
+        raise
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+
+
+def _build_bundle_direct(event_paths: List[Path], *, period: str, rule_map_path: Path,
                  out_dir: Path, identity_map_path: Optional[Path] = None,
                  closed_at: str = "", previous_revision: str = "",
                  generated_at: Optional[datetime] = None,

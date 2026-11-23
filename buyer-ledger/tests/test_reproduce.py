@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from buyer_ledger import reproduce as rp
 
@@ -230,6 +231,29 @@ class ReproduceBundleTest(unittest.TestCase):
         result = self._build()
         self.assertNotEqual("PASS", result["manifest"]["charge_verdict"])
         self.assertEqual("PASS", result["manifest"]["replay_integrity"])
+
+    def test_failed_build_leaves_no_partial_output(self):
+        self._write_events([_event("t1")])
+        with mock.patch.object(rp.usage_replay, "replay", side_effect=rp.usage_replay.ReplayError("boom")):
+            with self.assertRaises(rp.usage_replay.ReplayError):
+                self._build()
+        self.assertFalse(self.out.exists())
+        self.assertEqual([], list(self.root.glob("bundle.tmp-*")))
+
+    def test_failed_overwrite_preserves_previous_bundle(self):
+        self._write_events([_event("old")])
+        self._build()
+        before = {str(path.relative_to(self.out)): path.read_bytes()
+                  for path in self.out.rglob("*") if path.is_file()}
+        self._write_events([_event("new")])
+        with mock.patch.object(rp.usage_replay, "replay", side_effect=rp.usage_replay.ReplayError("boom")):
+            with self.assertRaises(rp.usage_replay.ReplayError):
+                self._build(overwrite=True)
+        after = {str(path.relative_to(self.out)): path.read_bytes()
+                 for path in self.out.rglob("*") if path.is_file()}
+        self.assertEqual(before, after)
+        self.assertEqual([], list(self.root.glob("bundle.tmp-*")))
+        self.assertEqual([], list(self.root.glob("bundle.backup-*")))
 
 
 if __name__ == "__main__":
