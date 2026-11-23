@@ -1,6 +1,6 @@
 # Verovo: implementation status
 
-**Current development release, 2026-11-23 · [v0.17.2](../CHANGELOG.md).** This patch binds clean payment recommendations to exact invoice bytes and contract versions, independently verifies settlement from credit evidence, and adds explicit three-minor-unit currency support while preserving the v0.16.2 `PeriodCase/CaseRepository`, linear task-coverage accounting, atomic reproduce creation and HALF_UP display contracts. Canonical verdicts, signed revisions and proof boundaries remain unchanged.
+**Current install release, 2026-11-23 · [v0.17.2](../CHANGELOG.md).** This patch binds clean payment recommendations to exact invoice bytes and contract versions, independently verifies settlement from credit evidence, and adds explicit three-minor-unit currency support while preserving the v0.16.2 `PeriodCase/CaseRepository`, linear task-coverage accounting, atomic reproduce creation and HALF_UP display contracts. Canonical verdicts, signed revisions and proof boundaries remain unchanged.
 
 Earlier baseline reviewed 2026-11-04 against the **v0.13.0 release**. Available means local implementation, not production validation on every platform.
 
