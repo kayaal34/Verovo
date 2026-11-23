@@ -2,135 +2,78 @@
 
 <img src="assets/verovo-logo-card.png" alt="Verovo" width="300">
 
-**在验收或续约前，核对一家 AI 供应商的一个账期**
+**让 AI 服务的每一笔钱，都花得明白**
 
-把合同计费规则、账单、用量和交付记录放在一起，分别查看费用差异、交付是否达标和材料覆盖范围。供应商自认的交付仍需买方证据。签核后的报告绑定当时的记录，后补材料进入新修订。
+Verovo 把供应商规则、账单、用量和交付记录放进同一次买方核验。业务、工程、采购和财务团队可以看清买了什么、交付了什么，以及下一步该验收、补救还是续约。
+
+[官网](https://roy-tong.github.io/Verovo/) · [English](README.md) · [核验指南](docs/buyer-review.md) · [账期重放](https://roy-tong.github.io/Verovo/examples/replayable-period.html)
+
+[![CI](https://github.com/roy-tong/verovo/actions/workflows/conformance.yml/badge.svg)](https://github.com/roy-tong/verovo/actions/workflows/conformance.yml)
+[![PyPI](https://img.shields.io/pypi/v/verovo)](https://pypi.org/project/verovo/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+
+## 一张总账单，回答不了要不要续约
+
+财务看总额，业务看任务，工程看调用和重试。Verovo 把三种视角连起来，帮助团队回答三个业务问题：
+
+- **费用对不对？** 按供应商适用规则复算支持的账单，并与票据记录比较。
+- **交付到位了吗？** 用买方自己的验收判据检查实际交付。
+- **这笔钱花得值吗？** 把任务成本与已验证结果连接起来，看每次成功交付的成本和 ROI。
+
+## 从一个账期，到清楚的下一步
+
+1. **带上一个账期**：整理一家供应商的规则、账单、用量和交付记录。
+2. **看清三类答案**：费用、交付和证据覆盖并排呈现。
+3. **讨论具体差异**：业务、财务和工程围绕同一组发现和待办推进。
+4. **重放并决定**：复现报告，保留签核修订，用于验收或续约。
+
+[查看买方核验报告](https://roy-tong.github.io/Verovo/examples/buyer-review.html) · [重放一个账期](https://roy-tong.github.io/Verovo/examples/replayable-period.html)
+
+## 运行第一次核验
 
 ```bash
-python3 -m pip install verovo
+pipx install verovo
 verovo review --sample --html buyer-review.html --json buyer-review.json
 ```
 
-本地合成示例分别展示费用、交付和缺失证据。[查看核验报告](https://roy-tong.github.io/Verovo/examples/buyer-review.html)或[重放一个合成账期](https://roy-tong.github.io/Verovo/examples/replayable-period.html)；两者都不是客户结果。
+合成示例把费用核验、交付核验和各自依据放进一份可检查的报告。打开 HTML 就能追溯判据与观察记录，再按[核验指南](docs/buyer-review.md)准备自己的任务。
 
-面向采购或运营 AI 服务的业务、工程和财务团队，交付可复算的经济账与待补证清单。本地 `economics` 支持按任务分摊费用。票据提取生成待审草稿，入账需核对规则与用量。[当前能力与技术取舍](docs/feature-status.md)。
-
-<p align="center">
-  <img src="assets/launch/hero.svg" alt="Verovo 将收费规则、用量与费用记录、交付证据汇入一次本地买方核验，费用与交付分别给出 PASS / FAIL / UNPROVABLE 结论" width="720">
-</p>
-
-[官网](https://roy-tong.github.io/Verovo/) · [English](README.md) ·
-[产品定义](docs/product-definition.md) · [核验任务指南](docs/buyer-review.md) · [OVO Discord](https://discord.gg/UqrM8MCXb) · [X / @elliwoodtong](https://x.com/elliwoodtong)
-
-## OVO 家族：Prove Anything
-
-Verovo 仍然聚焦买方费用与交付核验。**Prove Anything** 是 OVO 族级结果证明协议候选：Agent 说“完成了”，仍需独立复核。**Verified Capability Factory（VCF）** 是受阶段门约束的研究候选，不是 Verovo 当前依赖。Verovo 不会改成泛化验证平台；费用、交付、覆盖和买方决定继续分开。
+## 看清每个任务的经济性
 
 ```bash
-verovo proof export --bundle ./period --out ./proof-bundle --by "proof-reviewer"
-verovo proof replay ./proof-bundle --bundle ./period
+git clone https://github.com/roy-tong/Verovo.git && cd Verovo
+python3 healthcheck/verovo economics \
+  --case examples/task-economics.json \
+  --json economics.json --markdown economics.md
 ```
 
-重放会逐项核对来源哈希并重新计算 canonical 输出。输入变化返回 `EXPIRED`，重算不一致返回 `FAIL`。两个命令都不修改账期或证明，也不授权付款或验收。Buyer Ledger 另提供[可独立重放的账期样例与 Proof 投影](buyer-ledger/examples/replayable-period/README.md)。
+Verovo 连接任务、Agent 运行、用量、票据与已验证结果。你可以比较直接与分摊成本、每次成功交付成本，以及不同供应商或工作流选择的经济性。
 
-## 这个仓库从哪来
-
-它始于一次审计：把约 110 个 AI 用量/成本工具，喂进一份手算得出来的合成样本，再用工具自己的解析器跑一遍。65 条以上可复核的发现；大多数工具是对的，错的那批集中在五类（按内容块重复累加、重复事件、缓存计价语义、价表漂移、会话恢复/分叉丢失）。
-
-- **报告**：[The Token-Accounting Bug Report](campaigns/audit-report-2026-09.md)（英文）
-- **三张单页案例**（每个数字带出处与日期）：[launch case cards](docs/launch/README.md)
-- **审计对自己方法的修正**：有一条断言被真实数据推翻，那条规则现在适用于所有发现（[codeburn #1264](https://github.com/getagentseal/codeburn/pull/1264)）
-
-合并数按日期分开记，不维护一个手改的总数：**14** 项（报告发布 2026-09-09）、**23** 项（claims 索引 2026-10-11）。GitHub 搜索统计的是该账号全部合并 PR，不是审计修复数，两者不可互相替代。
-
-## 从费用和交付到单任务经济性
-
-| 任务 | 回答什么 | 支持什么行动 |
-|---|---|---|
-| **费用核验** | 收费是否符合适用约定，费用与用量能否对应 | 对账、付款、补证、供应商复核 |
-| **任务经济性** | 每项任务及每次成功交付花了多少钱 | 成本分摊、价值核算与资源决策 |
-| **交付核验** | 实际工作是否达到买方明确的业务要求 | 验收、补救、范围调整、续约 |
-
-两项任务可以分别开展，也可组合。账单没有错误，仍然可以需要交付核验；
-交付不达标，也不能自动推定收费违规或应当退款。缺证据保留 **UNPROVABLE（无法判断）**。
-
-核心用户是承担 AI 支出或业务结果的业务、工程和团队负责人，财务与采购协作。
-客服是首批应用场景；编程 Agent、自动化平台、工具/API 和模型服务属于长期对象范围，
-具体覆盖逐项验证。账本、SDK 和接入工具是能力，POC 是阶段安排。
-
-## 本地运行一次完整核验
-
-`review` 命令已包含在 **v0.13.0** 发布中。需要 Python 3.9+，无额外运行依赖。
+已有账期材料包：
 
 ```bash
-git clone https://github.com/roy-tong/verovo.git
-cd verovo
-python3 healthcheck/verovo review --sample --html buyer-review.html --json buyer-review.json
+python3 healthcheck/verovo intake --bundle examples/period-bundle --out ./period-out
+python3 healthcheck/verovo drivers --case ./period-out/case.json
 ```
 
-合成示例输出：**费用 PASS、交付 FAIL，另一项交付证据 UNPROVABLE**。
-打开 HTML 可查看独立结论、判据、观察值、来源与文件摘要。
-[查看合成示例报告](https://roy-tong.github.io/Verovo/examples/buyer-review.html)。
+[任务经济性](docs/task-economics.md) · [账期摄入](docs/period-intake.md) · [成本驱动](docs/cost-optimization.md)
 
-每份报告附带三层**结论分层**，互相独立、不合并成评分：**Level 1 规则一致性**（本次运行
-所能确立的）、**Level 2 证据可信性**（规则适用性、来源真实性与覆盖面——缺失时如实标注
-未确立，可选的 `basis.confirmed_by/confirmed_at` 人工确认会被回显计数，绝不推断）、
-**Level 3 买方业务裁决**（工具之外，指向 `verovo decisions` 记录）。六个操作阶段
-（Intake → Source Check → Rule Resolution → Reconciliation → Delivery Assessment →
-Buyer Decision，每步对应一条已发布命令与人工职责）见
-[docs/review-method/buyer-review-stages.md](docs/review-method/buyer-review-stages.md)。
-Agent 宿主可通过 MCP 只读调用同一核验（`verovo-mcp`：`verovo_review` /
-`verovo_review_template` / `verovo_recount`；不暴露任何写入或提交动作）。
+## 从公开测量工作中长出来
 
-自己的任务按照[输入指南](docs/buyer-review.md)准备：明确买方、服务、账户/任务、窗口、决定和负责人，
-分别填写收费规则与业务判据，并指定本地 JSON 证据字段。工具比较所提供的判据和记录；
-规则是否适用、来源是否可信仍须人工复核，不自动解析任意合同或评价所有 AI 输出。
+Verovo 始于一次约 110 个 AI 用量与成本工具的审计。项目公开了 65 条以上可复核发现，覆盖五类反复出现的计费问题，并持续记录复现与上游修正。
 
-## 使用已有核账工具
+- [The Token-Accounting Bug Report](campaigns/audit-report-2026-09.md)
+- [带日期的案例卡](docs/launch/README.md)
+- [公开证据与复现](https://roy-tong.github.io/Verovo/claims.html)
 
-```bash
-python3 -m pip install verovo
-verovo recount --sample
-```
+这项工作延续在开源规则、SDK、符合性向量和买方工具中。可以使用 CLI、通过 MCP 接入，或带一个具体供应商账期到[买方任务页](https://roy-tong.github.io/Verovo/first-look.html#contact)。
 
-`verovo` 已发布到 PyPI。CLI 与 Provider SDK 独立发布，不共用版本号。
+## 继续探索
 
-`prepare` 整理支持的导出，`recount` 按选定规则复算，`dispute` 整理差异，
-`recovery` 单独记录供应商认可与实际更正。规则估算差额不是已追回金额。
+- [买方核验指南](docs/buyer-review.md)
+- [支持的账单复算](examples/showcase/README.md)
+- [Buyer Ledger](buyer-ledger/README.md)
+- [Provider SDK](sdk/README.md)
+- [路线图](ROADMAP.md) · [贡献指南](CONTRIBUTING.md) · [AGENTS.md](AGENTS.md)
 
-## 当前能力与边界
-
-- **买方核验任务**：本地判据与 JSON 证据比较，费用/交付分列，HTML 与 JSON 输出；main 预览。
-- **费用复算**：有限导出格式与具名规则，需要核对合同、配置与账期的适用性。
-- **Buyer Ledger**：工具费用处理与 26 项能力目录；目录不等于接通，仍无真实客户账单验收。
-- **开发者工具**：本地 Agent 日志诊断、计量与符合性检查，保持独立技术价值。
-- **人工企业核验**：按具体任务确认范围和费用，付费与重复采购仍待验证。
-
-[账本说明](buyer-ledger/README.md) · [工程边界](buyer-ledger/REVIEW-20261029.md) ·
-[开发者 CLI](healthcheck/README.md) · [路线图](ROADMAP.md)
-
-## 带着具体任务开始
-
-[描述核验任务](https://roy-tong.github.io/Verovo/first-look.html#contact)：服务商、账户/任务、
-账期或决定日期、可用资料和负责人。交付验收可以独立提出，无需先有费用争议。
-
-免费测量通道 / Free measurement lane：带 20–100 行脱敏数据提交到
-[issue #6](https://github.com/roy-tong/verovo/issues/6) 或
-[官网表单](https://roy-tong.github.io/Verovo/services.html) —
-free: bring 20–100 sanitized rows to issue #6 or the website form.
-
-服务商核对上游支出时属于买方；核对下游收费时，仅围绕具体争议、收入差异或采购要求扩展。
-现有[免费测量任务](https://roy-tong.github.io/Verovo/services.html)保留样本测量范围，
-与企业发票、业务验收任务分开。没有统一企业报价或追回保证。
-
-本地命令不会上传数据。可选 GitHub 托管流程会上传至 GitHub，须使用私有仓库。
-工程测试、合成示例、开源采用与企业付费分别记录。
-
-发射案例卡（每个数字都标注来源与日期）：
-[tokendash #37](docs/launch/case-tokendash-37.md)（一条消息按三条计费）、
-[claude-hud #758](docs/launch/case-claude-hud-758.md)（1 小时缓存写入按 5 分钟档计价）、
-[VibeMirror-coder-001](docs/launch/case-vibemirror-coder-001.md)
-（免费通道的一次独立复测）。索引与分步图：[docs/launch](docs/launch/README.md)。
-
-[CI](https://github.com/roy-tong/verovo/actions/workflows/conformance.yml) ·
-[公开证据](https://roy-tong.github.io/Verovo/claims.html) · [贡献指南](CONTRIBUTING.md) · [MIT](LICENSE)
+Verovo 以 MIT 开源。从一家供应商的一个账期开始，为下一次验收或续约建立清楚的依据。
